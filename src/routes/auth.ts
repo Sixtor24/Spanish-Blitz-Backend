@@ -48,7 +48,7 @@ router.post('/signin', async (req: Request, res: Response) => {
     res.cookie('authjs.session-token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
@@ -107,7 +107,7 @@ router.post('/signup', async (req: Request, res: Response) => {
     res.cookie('authjs.session-token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
@@ -127,8 +127,15 @@ router.post('/signup', async (req: Request, res: Response) => {
 
 // Sign Out
 router.post('/signout', async (req: Request, res: Response) => {
-  res.clearCookie('authjs.session-token');
-  res.clearCookie('__Secure-authjs.session-token');
+  // Clear cookie with same options as when it was set
+  const cookieOptions = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' as const : 'lax' as const,
+  };
+  
+  res.clearCookie('authjs.session-token', cookieOptions);
+  res.clearCookie('__Secure-authjs.session-token', cookieOptions);
   res.json({ message: 'Signed out successfully' });
 });
 
