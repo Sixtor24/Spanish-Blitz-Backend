@@ -1,8 +1,10 @@
 import { Router, type Request, type Response } from 'express';
 import { hash, verify } from 'argon2';
 import jwt from 'jsonwebtoken';
+import { nanoid } from 'nanoid';
 import { sql } from '../config/database.js';
 import { config } from '../config/env.js';
+import { sendEmail, resetPasswordTemplate } from '../services/email.js';
 
 const router = Router();
 
@@ -130,7 +132,7 @@ router.post('/signout', async (req: Request, res: Response) => {
   res.json({ message: 'Signed out successfully' });
 });
 
-// Forgot Password (existing route)
+// Forgot Password
 router.post('/forgot-password', async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
@@ -151,10 +153,109 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
       return;
     }
 
-    // TODO: Implement actual password reset email logic
-    console.log(`Password reset requested for: ${email}`);
+    const user = userRows[0];
+
+    // Generate reset token
+    const resetToken = nanoid(32);
+    const tokenHash = await hash(resetToken);
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    // Delete any existing tokens for this user
+    await sql`
+      DELETE FROM password_reset_tokens WHERE user_id = ${user.id}
+    `;
+
+    // Store token in database
+    await sql`
+      INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+      VALUES (${user.id}, ${tokenHash}, ${expiresAt})
+    `;
+
+    // Send reset email
+    const resetLink = `${config.FRONTEND_URL}/account/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
+    
+    await sendEmail({
+      to: email,
+      subject: 'Restablece tu contraseña - Spanish Blitz',
+      html: resetPasswordTemplate({ resetLink })
+    });
+
+    console.log(`[auth] Password reset email sent to: ${email}`);
   } catch (error) {
     console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Reset Password
+router.post('/reset-password', async (req: Request, res: Response) => {
+  try {
+    const { email, token, newPassword } = req.body;
+
+    if (!email || !token || !newPassword) {
+      return res.status(400).json({ error: 'Email, token, and new password are required' });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    // Get user
+    const userRows = await sql`
+      SELECT id FROM users WHERE email = ${email} LIMIT 1
+    `;
+
+    if (userRows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+
+    const user = userRows[0];
+
+    // Get token from database
+    const tokenRows = await sql`
+      SELECT id, token_hash, expires_at
+      FROM password_reset_tokens
+      WHERE user_id = ${user.id}
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+
+    if (tokenRows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    }
+
+    const storedToken = tokenRows[0];
+
+    // Check if token is expired
+    if (new Date(storedToken.expires_at) < new Date()) {
+      await sql`DELETE FROM password_reset_tokens WHERE id = ${storedToken.id}`;
+      return res.status(400).json({ error: 'Reset token has expired' });
+    }
+
+    // Verify token
+    const isValidToken = await verify(storedToken.token_hash, token);
+    if (!isValidToken) {
+      return res.status(400).json({ error: 'Invalid reset token' });
+    }
+
+    // Hash new password
+    const passwordHash = await hash(newPassword);
+
+    // Update password
+    await sql`
+      UPDATE users
+      SET password_hash = ${passwordHash}, updated_at = NOW()
+      WHERE id = ${user.id}
+    `;
+
+    // Delete used token
+    await sql`DELETE FROM password_reset_tokens WHERE id = ${storedToken.id}`;
+
+    console.log(`[auth] Password reset successful for: ${email}`);
+
+    res.json({ message: 'Password reset successful' });
+  } catch (error) {
+    console.error('Reset password error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

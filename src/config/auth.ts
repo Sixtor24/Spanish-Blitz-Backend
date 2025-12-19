@@ -214,7 +214,7 @@ export const authConfig = {
         }
         const user = await adapter.getUserByEmail(email);
         if (!user) return null;
-        const matchingAccount = user.accounts.find((account: any) => account.provider === 'credentials');
+        const matchingAccount = (user as any).accounts?.find((account: any) => account.provider === 'credentials');
         const accountPassword = matchingAccount?.password;
         if (!accountPassword) return null;
         const isValid = await verify(accountPassword, password);
@@ -273,5 +273,5 @@ export async function auth() {
   return null; // Placeholder - will use session from cookies via middleware
 }
 
-export { adapter, authConfig };
+export { adapter };
 

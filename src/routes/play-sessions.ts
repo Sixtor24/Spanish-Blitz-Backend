@@ -378,5 +378,61 @@ router.post('/:id/answer', withErrorHandler(async (req, res) => {
   return res.json({ ok: true, points: pointsAwarded });
 }, 'POST /api/play-sessions/:id/answer'));
 
+/**
+ * DELETE /api/play-sessions/:id/players/:playerId
+ * Kick a player from a session (host/admin only)
+ */
+router.delete('/:id/players/:playerId', withErrorHandler(async (req, res) => {
+  const { user, error } = await getCurrentUserOr401(req);
+  if (error) return res.status(error.status).json(error.body);
+
+  const sessionId = req.params.id;
+  const playerId = req.params.playerId;
+
+  const sessionRows = await sql`SELECT id, host_user_id, status FROM play_sessions WHERE id = ${sessionId} LIMIT 1`;
+  
+  if (sessionRows.length === 0) {
+    throw new ApiError(404, 'Session not found');
+  }
+
+  const session = sessionRows[0];
+
+  // Only host or admin can kick players
+  if (session.host_user_id !== user.id && user.role !== 'admin') {
+    throw new ApiError(403, 'Only host or admin can kick players');
+  }
+
+  // Can't kick during active game
+  if (session.status === 'active') {
+    throw new ApiError(400, 'Cannot kick players during active game');
+  }
+
+  // Get player to kick
+  const playerRows = await sql`SELECT id, user_id, is_host FROM play_session_players WHERE id = ${playerId} AND session_id = ${sessionId} LIMIT 1`;
+  
+  if (playerRows.length === 0) {
+    throw new ApiError(404, 'Player not found in session');
+  }
+
+  const player = playerRows[0];
+
+  // Can't kick yourself
+  if (player.user_id === user.id) {
+    throw new ApiError(400, 'Cannot kick yourself');
+  }
+
+  // Can't kick the host
+  if (player.is_host) {
+    throw new ApiError(400, 'Cannot kick the host');
+  }
+
+  // Remove player
+  await sql`DELETE FROM play_session_players WHERE id = ${playerId}`;
+
+  broadcastSessionRefresh(sessionId);
+
+  return res.json({ ok: true, playerId });
+}, 'DELETE /api/play-sessions/:id/players/:playerId'));
+
 export default router;
 

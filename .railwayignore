@@ -1,0 +1,11 @@
+# Railway ignore file
+node_modules/
+*.log
+.env.local
+.env.development
+dist/
+coverage/
+.DS_Store
+*.swp
+*.swo
+

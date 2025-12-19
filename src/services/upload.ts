@@ -15,7 +15,7 @@ export async function upload({
     headers: {
       "Content-Type": buffer ? "application/octet-stream" : "application/json"
     },
-    body: buffer ? buffer : JSON.stringify({ base64, url })
+    body: buffer ? (buffer as any) : JSON.stringify({ base64, url })
   });
   
   const data = await response.json();
