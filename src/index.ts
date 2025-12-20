@@ -21,6 +21,7 @@ import playSessionsRouter from './routes/play-sessions.js';
 import statsRouter from './routes/stats.js';
 import studyEventsRouter from './routes/study-events.js';
 import adminRouter from './routes/admin.js';
+import ttsRouter from './routes/tts.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -69,6 +70,7 @@ app.use('/api/play-sessions', playSessionsRouter);
 app.use('/api/stats', statsRouter);
 app.use('/api/study-events', studyEventsRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/tts', ttsRouter);
 
 // Error handling middleware (must be last)
 app.use(errorHandler);
