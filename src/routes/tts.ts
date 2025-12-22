@@ -67,8 +67,8 @@ router.post('/synthesize', async (req: Request, res: Response) => {
     const escapedText = text.replace(/'/g, "'\\''");
 
     // Generar audio con edge-tts
-    // En Railway: usa 'edge-tts' del PATH (instalado por nixpacks)
-    // En local: usa python3 con la ruta completa si está definida, sino busca en PATH
+    // En Railway: usa 'python3 -m edge_tts' (más confiable que buscar en PATH)
+    // En local: usa python3 con la ruta completa si está definida, sino usa python3 -m edge_tts
     const edgeTtsPath = process.env.EDGE_TTS_PATH;
     let command: string;
     
@@ -76,8 +76,8 @@ router.post('/synthesize', async (req: Request, res: Response) => {
       // Ruta local completa - ejecutar con python3
       command = `python3 "${edgeTtsPath}" --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}"`;
     } else {
-      // Railway o PATH - usar directamente edge-tts
-      command = `edge-tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}"`;
+      // Railway o PATH - usar python3 -m edge_tts (más confiable)
+      command = `python3 -m edge_tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}"`;
     }
 
     console.log(`🎤 [Edge TTS] Generating neural audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice} (${locale} ${voiceGender})`);
