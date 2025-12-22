@@ -30,7 +30,7 @@ const audioCache = new Map<string, string>();
  */
 router.post('/synthesize', async (req: Request, res: Response) => {
   try {
-    const { text, locale = 'es-ES', voice: voiceGender = 'male' } = req.body;
+    let { text, locale = 'es-ES', voice: voiceGender = 'male' } = req.body;
 
     if (!text || typeof text !== 'string') {
       return res.status(400).json({ error: 'Text is required' });
@@ -39,6 +39,17 @@ router.post('/synthesize', async (req: Request, res: Response) => {
     // Validar longitud del texto
     if (text.length > 500) {
       return res.status(400).json({ error: 'Text too long (max 500 characters)' });
+    }
+
+    // Normalizar locale: si viene como "es-MX-male", extraer solo "es-MX"
+    // También manejar casos donde el locale viene con el gender concatenado
+    if (typeof locale === 'string' && locale.includes('-male') || locale.includes('-female')) {
+      locale = locale.replace(/-male$|-female$/, '');
+    }
+
+    // Asegurar que voiceGender sea válido
+    if (voiceGender !== 'male' && voiceGender !== 'female') {
+      voiceGender = 'male';
     }
 
     const selectedVoice = VOICE_MAP[locale]?.[voiceGender as 'male' | 'female'] || VOICE_MAP['es-ES'][voiceGender as 'male' | 'female'] || VOICE_MAP['es-ES']['male'];
@@ -80,7 +91,7 @@ router.post('/synthesize', async (req: Request, res: Response) => {
       command = `python3 -m edge_tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}"`;
     }
 
-    console.log(`🎤 [Edge TTS] Generating neural audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice} (${locale} ${voiceGender})`);
+    console.log(`🎤 [Edge TTS] Generating neural audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice} (locale: ${locale}, gender: ${voiceGender})`);
 
     await execAsync(command, { timeout: 10000 }); // 10 segundos timeout
 
