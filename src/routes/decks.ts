@@ -82,8 +82,9 @@ router.get('/', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
   const params: any[] = [];
   let paramIndex = 1;
 
-  // Apply filter
-  if (filter === "owned") {
+  // Apply filter - by default, only show user's own decks
+  if (filter === "owned" || !filter || filter === "all") {
+    // Default behavior: only show decks owned by the current user
     query += ` AND d.owner_user_id = $${paramIndex}`;
     params.push(userIdText);
     paramIndex++;
