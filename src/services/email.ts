@@ -52,7 +52,6 @@ export async function sendEmail({
         subject,
         from: config.RESEND_FROM_EMAIL,
         error: result.error,
-        statusCode: result.error.statusCode,
         message: result.error.message,
         name: result.error.name
       });
