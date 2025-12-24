@@ -144,6 +144,13 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
 
+    console.log(`[auth] 📧 Forgot password request for: ${email}`);
+    console.log(`[auth] 🔧 Email config check:`, {
+      hasResendKey: !!config.RESEND_API_KEY,
+      fromEmail: config.RESEND_FROM_EMAIL,
+      frontendUrl: config.FRONTEND_URL
+    });
+
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
     }
@@ -153,10 +160,14 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
       SELECT id, email FROM users WHERE email = ${email} LIMIT 1
     `;
 
+    const userExists = userRows.length > 0;
+    console.log(`[auth] 👤 User exists: ${userExists} for email: ${email}`);
+
     // Always return success to prevent email enumeration
     res.json({ message: 'If the email exists, a password reset link has been sent' });
 
-    if (userRows.length === 0) {
+    if (!userExists) {
+      console.log(`[auth] ⚠️ User not found, skipping email send for: ${email}`);
       return;
     }
 
@@ -180,17 +191,35 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
 
     // Send reset email
     const resetLink = `${config.FRONTEND_URL}/account/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
+    console.log(`[auth] 🔗 Generated reset link for: ${email}`);
     
-    await sendEmail({
-      to: email,
-      subject: 'Restablece tu contraseña - Spanish Blitz',
-      html: resetPasswordTemplate({ resetLink })
+    try {
+      console.log(`[auth] 📤 Attempting to send email to: ${email} from: ${config.RESEND_FROM_EMAIL}`);
+      await sendEmail({
+        to: email,
+        subject: 'Restablece tu contraseña - Spanish Blitz',
+        html: resetPasswordTemplate({ resetLink })
+      });
+      console.log(`[auth] ✅ Password reset email sent successfully to: ${email}`);
+    } catch (emailError: any) {
+      console.error(`[auth] ❌ Failed to send password reset email to: ${email}`, {
+        error: emailError?.message || String(emailError),
+        stack: emailError?.stack,
+        from: config.RESEND_FROM_EMAIL,
+        to: email
+      });
+      // Don't throw - we already returned success to prevent email enumeration
+      // But log the error for debugging
+    }
+  } catch (error: any) {
+    console.error('[auth] ❌ Forgot password error:', {
+      error: error?.message || String(error),
+      stack: error?.stack
     });
-
-    console.log(`[auth] Password reset email sent to: ${email}`);
-  } catch (error) {
-    console.error('Forgot password error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    // Don't change response if already sent
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    }
   }
 });
 

@@ -15,26 +15,69 @@ export async function sendEmail({
   subject: string; 
   html: string 
 }) {
+  console.log(`[email] 📧 sendEmail called:`, {
+    to,
+    subject,
+    from: config.RESEND_FROM_EMAIL,
+    hasResend: !!resend,
+    hasFromEmail: !!config.RESEND_FROM_EMAIL
+  });
+
   if (!resend || !config.RESEND_FROM_EMAIL) {
-    console.warn('[email] Missing RESEND_API_KEY or RESEND_FROM_EMAIL; skipping send');
-    return;
+    console.error('[email] ❌ Missing configuration:', {
+      hasResend: !!resend,
+      hasFromEmail: !!config.RESEND_FROM_EMAIL,
+      fromEmail: config.RESEND_FROM_EMAIL
+    });
+    throw new Error('Email service not configured: Missing RESEND_API_KEY or RESEND_FROM_EMAIL');
   }
 
   try {
+    console.log(`[email] 📤 Sending email via Resend:`, {
+      from: config.RESEND_FROM_EMAIL,
+      to,
+      subject
+    });
+
     const result = await resend.emails.send({ 
       from: config.RESEND_FROM_EMAIL, 
       to, 
       subject, 
       html 
     });
-    console.info('[email] send attempt', { 
+    
+    if (result.error) {
+      console.error('[email] ❌ Resend API error:', { 
+        to, 
+        subject,
+        from: config.RESEND_FROM_EMAIL,
+        error: result.error,
+        statusCode: result.error.statusCode,
+        message: result.error.message,
+        name: result.error.name
+      });
+      throw new Error(result.error.message || 'Email send failed');
+    }
+    
+    console.log('[email] ✅ Email sent successfully via Resend:', { 
       to, 
-      subject, 
-      id: result?.data?.id, 
-      error: result?.error 
+      subject,
+      from: config.RESEND_FROM_EMAIL,
+      id: result?.data?.id,
+      emailId: result?.data?.id
     });
-  } catch (err) {
-    console.error('[email] Failed to send', err);
+    
+    return result.data;
+  } catch (err: any) {
+    console.error('[email] ❌ Exception during send:', { 
+      to, 
+      subject,
+      from: config.RESEND_FROM_EMAIL,
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      errorType: err?.constructor?.name
+    });
+    throw err;
   }
 }
 
