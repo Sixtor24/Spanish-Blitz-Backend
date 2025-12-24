@@ -78,21 +78,16 @@ router.post('/synthesize', async (req: Request, res: Response) => {
     const escapedText = text.replace(/'/g, "'\\''");
 
     // Generar audio con edge-tts
-    // En Railway: intentar usar 'edge-tts' directamente, luego 'python3.11 -m edge_tts'
-    // En local: usa python3 con la ruta completa si está definida, sino usa edge-tts o python3 -m edge_tts
+    // Intentar usar el ejecutable directamente, luego python3 -m edge_tts
     const edgeTtsPath = process.env.EDGE_TTS_PATH;
-    const isRailway = !!process.env.RAILWAY_ENVIRONMENT_NAME;
     let command: string;
     
     if (edgeTtsPath && edgeTtsPath.includes('/')) {
       // Ruta local completa - ejecutar con python3
       command = `python3 "${edgeTtsPath}" --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}"`;
-    } else if (isRailway) {
-      // Railway - intentar edge-tts directamente, luego python3.11 -m edge_tts
-      command = `edge-tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}" || python3.11 -m edge_tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}"`;
     } else {
-      // Local sin ruta - intentar edge-tts, luego python3.11, luego python3
-      command = `edge-tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}" || python3.11 -m edge_tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}" || python3 -m edge_tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}"`;
+      // Intentar edge-tts directamente, luego python3 -m edge_tts
+      command = `edge-tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}" || python3 -m edge_tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}"`;
     }
 
     console.log(`🎤 [Edge TTS] Generating neural audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice} (locale: ${locale}, gender: ${voiceGender})`);
