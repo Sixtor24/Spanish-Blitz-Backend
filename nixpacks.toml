@@ -4,8 +4,9 @@ nixPkgs = ["nodejs_20", "python311", "python311Packages.pip"]
 [phases.install]
 cmds = [
   "npm install",
-  "pip install --upgrade pip --break-system-packages",
-  "pip install edge-tts --break-system-packages"
+  "python3.11 -m ensurepip --upgrade --default-pip",
+  "python3.11 -m pip install --upgrade pip --break-system-packages",
+  "python3.11 -m pip install edge-tts --break-system-packages"
 ]
 
 [phases.build]
