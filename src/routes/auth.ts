@@ -17,11 +17,12 @@ router.post('/signin', async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    // Get user from database
+    // Get user from database (case-insensitive email)
+    const emailLower = email.toLowerCase().trim();
     const userRows = await sql`
       SELECT id, email, password_hash, role, display_name
       FROM users
-      WHERE email = ${email}
+      WHERE LOWER(TRIM(email)) = ${emailLower}
       LIMIT 1
     `;
 
@@ -75,9 +76,10 @@ router.post('/signup', async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Email and password are required' });
     }
 
-    // Check if user already exists
+    // Check if user already exists (case-insensitive email)
+    const emailLower = email.toLowerCase().trim();
     const existingUser = await sql`
-      SELECT id FROM users WHERE email = ${email} LIMIT 1
+      SELECT id FROM users WHERE LOWER(TRIM(email)) = ${emailLower} LIMIT 1
     `;
 
     if (existingUser.length > 0) {
@@ -87,10 +89,13 @@ router.post('/signup', async (req: Request, res: Response) => {
     // Hash password
     const password_hash = await hash(password);
 
+    // Normalize email (lowercase and trim)
+    const normalizedEmail = emailLower;
+
     // Create user
     const newUserRows = await sql`
       INSERT INTO users (email, password_hash, display_name, role)
-      VALUES (${email}, ${password_hash}, ${name || email}, 'user')
+      VALUES (${normalizedEmail}, ${password_hash}, ${name || normalizedEmail}, 'user')
       RETURNING id, email, display_name, role
     `;
 
@@ -155,9 +160,10 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Email is required' });
     }
 
-    // Check if user exists
+    // Check if user exists (case-insensitive email comparison)
+    const emailLower = email.toLowerCase().trim();
     const userRows = await sql`
-      SELECT id, email FROM users WHERE email = ${email} LIMIT 1
+      SELECT id, email FROM users WHERE LOWER(TRIM(email)) = ${emailLower} LIMIT 1
     `;
 
     const userExists = userRows.length > 0;
@@ -236,9 +242,10 @@ router.post('/reset-password', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
 
-    // Get user
+    // Get user (case-insensitive email)
+    const emailLower = email.toLowerCase().trim();
     const userRows = await sql`
-      SELECT id FROM users WHERE email = ${email} LIMIT 1
+      SELECT id FROM users WHERE LOWER(TRIM(email)) = ${emailLower} LIMIT 1
     `;
 
     if (userRows.length === 0) {
