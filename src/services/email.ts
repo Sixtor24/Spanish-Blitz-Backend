@@ -53,9 +53,16 @@ export async function sendEmail({
         from: config.RESEND_FROM_EMAIL,
         error: result.error,
         message: result.error.message,
-        name: result.error.name
+        name: result.error.name,
+        fullError: JSON.stringify(result.error, null, 2)
       });
-      throw new Error(result.error.message || 'Email send failed');
+      
+      // Provide more helpful error messages
+      const errorMessage = result.error.message || 'Email send failed';
+      if (errorMessage.includes('domain') || errorMessage.includes('Domain')) {
+        throw new Error(`Domain verification issue: ${errorMessage}. Please verify the domain '${config.RESEND_FROM_EMAIL?.split('@')[1]}' in Resend dashboard.`);
+      }
+      throw new Error(errorMessage);
     }
     
     console.log('[email] ✅ Email sent successfully via Resend:', { 
