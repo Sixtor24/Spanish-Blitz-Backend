@@ -21,6 +21,9 @@ export const config = {
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
   RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL || '',
   
+  // Speech Recognition (for Brave compatibility)
+  DEEPGRAM_API_KEY: process.env.DEEPGRAM_API_KEY || '',
+  
   // Application
   APP_BASE_URL: process.env.APP_BASE_URL || 'http://localhost:4000',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:4000',
