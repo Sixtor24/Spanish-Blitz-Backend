@@ -39,14 +39,22 @@ router.post('/transcribe', async (req: Request, res: Response) => {
 
     console.log(`🎤 [Speech] Transcribing audio (${audioBuffer.length} bytes, locale: ${locale})`);
 
-    // Transcribe audio using Deepgram
+    // Determine language code for Deepgram
+    const languageCode = locale.startsWith('es') ? 'es' : 'en';
+    
+    // Transcribe audio using Deepgram with optimized settings
     const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
       audioBuffer,
       {
-        model: 'nova-2',
-        language: locale.startsWith('es') ? 'es' : 'en',
-        smart_format: true,
-        punctuate: true,
+        model: 'nova-2', // Fast and accurate model (best balance)
+        language: languageCode,
+        smart_format: true, // Automatically format numbers, dates, times, etc.
+        punctuate: true, // Add punctuation automatically
+        paragraphs: true, // Better paragraph detection and formatting
+        utterances: true, // Detect natural speech pauses and breaks
+        endpointing: 300, // Detect end of speech (300ms of silence)
+        diarize: false, // Don't identify different speakers (single user scenario)
+        multichannel: false, // Single channel audio (mono)
       }
     );
 
@@ -59,7 +67,10 @@ router.post('/transcribe', async (req: Request, res: Response) => {
     }
 
     // Extract transcript from Deepgram response
-    const transcript = result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || '';
+    // Deepgram can return results in different formats depending on options
+    const channel = result?.results?.channels?.[0];
+    const alternative = channel?.alternatives?.[0];
+    const transcript = alternative?.transcript || '';
 
     if (!transcript || transcript.trim().length === 0) {
       console.warn('[Speech] ⚠️ No transcript found in response');
@@ -69,12 +80,18 @@ router.post('/transcribe', async (req: Request, res: Response) => {
       });
     }
 
-    console.log(`✅ [Speech] Transcription successful: "${transcript}"`);
+    // Get confidence score (0-1, where 1 is highest confidence)
+    const confidence = alternative?.confidence || 0;
+    
+    // Log transcription details
+    console.log(`✅ [Speech] Transcription successful: "${transcript.substring(0, 100)}${transcript.length > 100 ? '...' : ''}"`);
+    console.log(`📊 [Speech] Confidence: ${(confidence * 100).toFixed(1)}%, Language: ${languageCode}`);
 
     res.json({
       transcript: transcript.trim(),
-      confidence: result?.results?.channels?.[0]?.alternatives?.[0]?.confidence || 0,
+      confidence: confidence,
       language: locale,
+      words: alternative?.words?.length || 0, // Number of words detected
     });
   } catch (error: any) {
     console.error('[Speech] ❌ Transcription error:', error);

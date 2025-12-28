@@ -80,11 +80,15 @@ app.use(errorHandler);
 // Start server
 const PORT = config.PORT;
 httpServer.listen(PORT, () => {
+  console.log('\n==============================================');
   console.log(`🚀 Spanish Blitz API Server running on port ${PORT}`);
   console.log(`📍 Environment: ${config.NODE_ENV}`);
   console.log(`🌐 CORS enabled for: ${config.FRONTEND_URL}`);
   console.log(`🔐 Auth URL: ${config.AUTH_URL}`);
   console.log(`📊 Database: ${config.DATABASE_URL ? 'Connected' : 'Not configured'}`);
+  console.log(`🔌 WebSocket: Enabled (Speech Streaming)`);
+  console.log(`🎤 Deepgram: ${process.env.DEEPGRAM_API_KEY ? 'Configured' : 'Not configured'}`);
+  console.log('==============================================\n');
 });
 
 export { app, httpServer };
