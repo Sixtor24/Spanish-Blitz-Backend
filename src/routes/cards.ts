@@ -131,6 +131,12 @@ router.post('/decks/:deckId/cards/bulk', requireAuth, withErrorHandler(async (re
 
     if (newTotalCards > 20) {
       const remainingSlots = Math.max(0, 20 - currentCardCount);
+      
+      // If this is the first batch of cards (deck is empty), delete the deck
+      if (currentCardCount === 0) {
+        await sql`DELETE FROM decks WHERE id = ${deckId}`;
+      }
+      
       return res.status(403).json({
         error: `Free accounts are limited to 20 cards per set. You can add ${remainingSlots} more card(s). Upgrade to Premium for unlimited cards.`,
         limit_exceeded: true,
@@ -138,6 +144,7 @@ router.post('/decks/:deckId/cards/bulk', requireAuth, withErrorHandler(async (re
         current_count: currentCardCount,
         max_allowed: 20,
         remaining_slots: remainingSlots,
+        deck_deleted: currentCardCount === 0,
       });
     }
   }
