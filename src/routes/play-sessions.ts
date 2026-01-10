@@ -17,32 +17,34 @@ const genCode = () => nanoid(CODE_LENGTH).toUpperCase();
  * Build session state for response
  */
 async function buildState(sessionId: string | number, currentUserId: string) {
-  const [sessionRows, playerRows, questionRows, answerRows] = await Promise.all([
-    sql`SELECT ps.id, ps.code, ps.is_teacher, ps.host_user_id, ps.question_count, ps.time_limit_seconds, ps.status, ps.started_at, ps.ends_at, d.title as deck_title
-        FROM play_sessions ps
-        JOIN decks d ON d.id = ps.deck_id
-        WHERE ps.id = ${sessionId}
-        LIMIT 1`,
-    sql`
-      SELECT p.id, p.user_id, p.score, p.state, p.is_host, u.display_name, u.email,
-        (SELECT count(*)::int FROM play_session_answers a WHERE a.player_id = p.id) AS answered_count
-      FROM play_session_players p
-      JOIN users u ON u.id = p.user_id
-      WHERE p.session_id = ${sessionId}
-    `,
-    sql`
-      SELECT q.id, q.card_id, q.position,
-        c.question, c.answer, c.type,
-        c.answer AS translation_en,
-        c.question AS prompt_es,
-        c.question AS answer_es
-      FROM play_session_questions q
-      JOIN cards c ON c.id = q.card_id
-      WHERE q.session_id = ${sessionId}
-      ORDER BY q.position ASC
-    `,
-    sql`SELECT a.id, a.player_id, a.question_id, a.is_correct, a.points_awarded FROM play_session_answers a WHERE a.session_id = ${sessionId} AND a.player_id = (SELECT id FROM play_session_players WHERE session_id = ${sessionId} AND user_id = ${currentUserId} LIMIT 1)`
-  ]);
+  // Execute queries sequentially to avoid connection pool saturation
+  const sessionRows = await sql`SELECT ps.id, ps.code, ps.is_teacher, ps.host_user_id, ps.question_count, ps.time_limit_seconds, ps.status, ps.started_at, ps.ends_at, d.title as deck_title
+      FROM play_sessions ps
+      JOIN decks d ON d.id = ps.deck_id
+      WHERE ps.id = ${sessionId}
+      LIMIT 1`;
+  
+  const playerRows = await sql`
+    SELECT p.id, p.user_id, p.score, p.state, p.is_host, u.display_name, u.email,
+      (SELECT count(*)::int FROM play_session_answers a WHERE a.player_id = p.id) AS answered_count
+    FROM play_session_players p
+    JOIN users u ON u.id = p.user_id
+    WHERE p.session_id = ${sessionId}
+  `;
+  
+  const questionRows = await sql`
+    SELECT q.id, q.card_id, q.position,
+      c.question, c.answer, c.type,
+      c.answer AS translation_en,
+      c.question AS prompt_es,
+      c.question AS answer_es
+    FROM play_session_questions q
+    JOIN cards c ON c.id = q.card_id
+    WHERE q.session_id = ${sessionId}
+    ORDER BY q.position ASC
+  `;
+  
+  const answerRows = await sql`SELECT a.id, a.player_id, a.question_id, a.is_correct, a.points_awarded FROM play_session_answers a WHERE a.session_id = ${sessionId} AND a.player_id = (SELECT id FROM play_session_players WHERE session_id = ${sessionId} AND user_id = ${currentUserId} LIMIT 1)`;
 
   const session = sessionRows[0];
   const isTeacherHost = session?.is_teacher && session?.host_user_id === currentUserId;
@@ -145,14 +147,29 @@ router.post('/', withErrorHandler(async (req, res) => {
     ON CONFLICT DO NOTHING
   `;
 
-  await Promise.all(
-    selectedCards.map((card, idx) =>
-      sql`
-        INSERT INTO play_session_questions (session_id, card_id, position, points_correct, points_incorrect)
-        VALUES (${session.id}, ${card.id}, ${idx + 1}, 2, -1)
-      `
-    )
-  );
+  // Insert all questions in a single optimized query
+  if (selectedCards.length > 0) {
+    const values = selectedCards.map((card, idx) => ({
+      session_id: session.id,
+      card_id: card.id,
+      position: idx + 1,
+      points_correct: 1,
+      points_incorrect: -1
+    }));
+
+    // Build VALUES clause dynamically
+    const placeholders = values.map((_, i) => {
+      const offset = i * 5;
+      return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5})`;
+    }).join(', ');
+
+    const params = values.flatMap(v => [v.session_id, v.card_id, v.position, v.points_correct, v.points_incorrect]);
+
+    await sql(
+      `INSERT INTO play_session_questions (session_id, card_id, position, points_correct, points_incorrect) VALUES ${placeholders}`,
+      params
+    );
+  }
 
   broadcastSessionRefresh(session.id);
 
@@ -315,7 +332,7 @@ router.post('/:id/answer', withErrorHandler(async (req, res) => {
 
   if (session.ends_at && new Date(session.ends_at).getTime() < Date.now()) {
     await sql`UPDATE play_sessions SET status = 'completed' WHERE id = ${sessionId}`;
-    throw new ApiError(400, 'Session time is over');
+    throw new ApiError(400, 'La actividad ha finalizado. Revisa los resultados finales.');
   }
 
   const playerRows = await sql`SELECT id, is_host FROM play_session_players WHERE session_id = ${sessionId} AND user_id = ${user.id} LIMIT 1`;
@@ -329,7 +346,7 @@ router.post('/:id/answer', withErrorHandler(async (req, res) => {
     throw new ApiError(400, 'Teacher/host cannot answer');
   }
 
-  const pointsAwarded = isCorrect ? 2 : -1;
+  const pointsAwarded = isCorrect ? 1 : -1;
 
   const questionRows = await sql`SELECT id FROM play_session_questions WHERE id = ${questionId} AND session_id = ${sessionId} LIMIT 1`;
   
