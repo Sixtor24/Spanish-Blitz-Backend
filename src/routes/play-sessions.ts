@@ -242,7 +242,7 @@ router.get('/:id/state', withErrorHandler(async (req, res) => {
   const { user, error } = await getCurrentUserOr401(req);
   if (error) return res.status(error.status).json(error.body);
 
-  const sessionId = req.params.id;
+  const sessionId = String(req.params.id);
   const sessionRows = await sql`SELECT id FROM play_sessions WHERE id = ${sessionId} LIMIT 1`;
   
   if (sessionRows.length === 0) {
@@ -261,7 +261,7 @@ router.post('/:id/start', withErrorHandler(async (req, res) => {
   const { user, error } = await getCurrentUserOr401(req);
   if (error) return res.status(error.status).json(error.body);
 
-  const sessionId = req.params.id;
+  const sessionId = String(req.params.id);
   const sessions = await sql`SELECT id, host_user_id, status, time_limit_seconds FROM play_sessions WHERE id = ${sessionId} LIMIT 1`;
   
   if (sessions.length === 0) {
@@ -304,7 +304,7 @@ router.post('/:id/answer', withErrorHandler(async (req, res) => {
   const { user, error } = await getCurrentUserOr401(req);
   if (error) return res.status(error.status).json(error.body);
 
-  const sessionId = req.params.id;
+  const sessionId = String(req.params.id);
   const body = req.body;
   const questionId = body.questionId ?? body.question_id;
   const isCorrect = Boolean(body.isCorrect ?? body.is_correct);
@@ -403,8 +403,8 @@ router.delete('/:id/players/:playerId', withErrorHandler(async (req, res) => {
   const { user, error } = await getCurrentUserOr401(req);
   if (error) return res.status(error.status).json(error.body);
 
-  const sessionId = req.params.id;
-  const playerId = req.params.playerId;
+  const sessionId = String(req.params.id);
+  const playerId = String(req.params.playerId);
 
   const sessionRows = await sql`SELECT id, host_user_id, status FROM play_sessions WHERE id = ${sessionId} LIMIT 1`;
   
