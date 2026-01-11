@@ -61,6 +61,16 @@ async function ensureClassroomTables() {
     )
   `;
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS assignment_students (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      assignment_id UUID NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
+      student_id TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(assignment_id, student_id)
+    )
+  `;
+
   // Create indexes if they don't exist
   await sql`CREATE INDEX IF NOT EXISTS idx_classrooms_teacher ON classrooms(teacher_id)`;
   await sql`CREATE INDEX IF NOT EXISTS idx_classrooms_code ON classrooms(code)`;
@@ -456,12 +466,15 @@ router.delete('/:id/students/:studentId', requireAuth, withErrorHandler(async (r
 /**
  * POST /api/classrooms/:id/assignments
  * Create an assignment (teacher only)
+ * Body: { deck_id, title, description?, due_date?, student_ids?: string[] }
+ * If student_ids is provided, assignment is only for those students
+ * If student_ids is empty/null, assignment is for all students in classroom
  */
 router.post('/:id/assignments', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
   const user = await getCurrentUser(req.session!);
   const userId = String(user.id);
   const { id } = req.params;
-  const { deck_id, title, description, due_date } = req.body;
+  const { deck_id, title, description, due_date, student_ids, required_repetitions } = req.body;
 
   if (!deck_id || !title) {
     throw new ApiError(400, 'deck_id and title are required');
@@ -481,12 +494,27 @@ router.post('/:id/assignments', requireAuth, withErrorHandler(async (req: AuthRe
   }
 
   const rows = await sql`
-    INSERT INTO assignments (classroom_id, deck_id, title, description, due_date)
-    VALUES (${id}, ${deck_id}, ${title}, ${description || null}, ${due_date || null})
+    INSERT INTO assignments (classroom_id, deck_id, title, description, due_date, required_repetitions)
+    VALUES (${id}, ${deck_id}, ${title}, ${description || null}, ${due_date || null}, ${required_repetitions || 1})
     RETURNING *
   `;
 
-  return res.status(201).json(rows[0]);
+  const assignment = rows[0];
+
+  // If student_ids provided, assign only to those students
+  if (student_ids && Array.isArray(student_ids) && student_ids.length > 0) {
+    // Insert assignment-student relationships
+    for (const studentId of student_ids) {
+      await sql`
+        INSERT INTO assignment_students (assignment_id, student_id)
+        VALUES (${assignment.id}, ${studentId})
+        ON CONFLICT (assignment_id, student_id) DO NOTHING
+      `;
+    }
+  }
+  // If no student_ids, assignment is for all students (no entries in assignment_students)
+
+  return res.status(201).json(assignment);
 }, 'POST /api/classrooms/:id/assignments'));
 
 /**
@@ -518,22 +546,66 @@ router.get('/:id/assignments', requireAuth, withErrorHandler(async (req: AuthReq
     throw new ApiError(403, 'Access denied');
   }
 
-  const assignments = await sql`
-    SELECT 
-      a.*,
-      d.title as deck_title,
-      COUNT(DISTINCT s.student_id) FILTER (WHERE s.completed_at IS NOT NULL) as completed_count,
-      COUNT(DISTINCT cm.student_id) as total_students,
-      BOOL_OR(s.student_id = ${userId} AND s.completed_at IS NOT NULL) as completed,
-      MAX(CASE WHEN s.student_id = ${userId} THEN s.completed_at ELSE NULL END) as completed_at
-    FROM assignments a
-    JOIN decks d ON d.id = a.deck_id
-    LEFT JOIN assignment_submissions s ON s.assignment_id = a.id
-    LEFT JOIN classroom_memberships cm ON cm.classroom_id = a.classroom_id AND cm.is_active = true
-    WHERE a.classroom_id = ${id}
-    GROUP BY a.id, d.title
-    ORDER BY a.created_at DESC
+  // Get classroom info to check if user is teacher
+  const classroomInfo = await sql`
+    SELECT teacher_id FROM classrooms WHERE id = ${id} LIMIT 1
   `;
+  
+  const isTeacher = classroomInfo.length > 0 && classroomInfo[0].teacher_id === userId;
+
+  let assignments;
+  
+  if (isTeacher) {
+    // Teachers see all assignments
+    assignments = await sql`
+      SELECT 
+        a.*,
+        d.title as deck_title,
+        COUNT(DISTINCT s.student_id) FILTER (WHERE s.repetitions_completed >= a.required_repetitions) as completed_count,
+        COUNT(DISTINCT cm.student_id) as total_students,
+        BOOL_OR(s.student_id = ${userId} AND s.repetitions_completed >= a.required_repetitions) as completed,
+        MAX(CASE WHEN s.student_id = ${userId} THEN s.completed_at ELSE NULL END) as completed_at,
+        COALESCE(MAX(CASE WHEN s.student_id = ${userId} THEN s.repetitions_completed ELSE 0 END), 0) as repetitions_completed
+      FROM assignments a
+      JOIN decks d ON d.id = a.deck_id
+      LEFT JOIN assignment_submissions s ON s.assignment_id = a.id
+      LEFT JOIN classroom_memberships cm ON cm.classroom_id = a.classroom_id AND cm.is_active = true
+      WHERE a.classroom_id = ${id}
+      GROUP BY a.id, d.title
+      ORDER BY a.created_at DESC
+    `;
+  } else {
+    // Students only see assignments assigned to them or assignments for all students
+    assignments = await sql`
+      SELECT DISTINCT 
+        a.*,
+        d.title as deck_title,
+        COUNT(DISTINCT s.student_id) FILTER (WHERE s.repetitions_completed >= a.required_repetitions) as completed_count,
+        COUNT(DISTINCT cm.student_id) as total_students,
+        BOOL_OR(s.student_id = ${userId} AND s.repetitions_completed >= a.required_repetitions) as completed,
+        MAX(CASE WHEN s.student_id = ${userId} THEN s.completed_at ELSE NULL END) as completed_at,
+        COALESCE(MAX(CASE WHEN s.student_id = ${userId} THEN s.repetitions_completed ELSE 0 END), 0) as repetitions_completed
+      FROM assignments a
+      JOIN decks d ON d.id = a.deck_id
+      LEFT JOIN assignment_submissions s ON s.assignment_id = a.id
+      LEFT JOIN classroom_memberships cm ON cm.classroom_id = a.classroom_id AND cm.is_active = true
+      WHERE a.classroom_id = ${id}
+        AND (
+          NOT EXISTS (
+            SELECT 1 FROM assignment_students ast 
+            WHERE ast.assignment_id = a.id
+          )
+          OR
+          EXISTS (
+            SELECT 1 FROM assignment_students ast 
+            WHERE ast.assignment_id = a.id 
+              AND ast.student_id = ${userId}
+          )
+        )
+      GROUP BY a.id, d.title
+      ORDER BY a.created_at DESC
+    `;
+  }
 
   return res.json(assignments);
 }, 'GET /api/classrooms/:id/assignments'));
@@ -589,22 +661,24 @@ router.post('/:id/assignments/:assignmentId/complete', requireAuth, withErrorHan
   }
 
   // Verify assignment exists
-  const assignment = await sql`
-    SELECT * FROM assignments WHERE id = ${assignmentId} AND classroom_id = ${id} LIMIT 1
+  const assignmentCheck = await sql`
+    SELECT id FROM assignments 
+    WHERE id = ${assignmentId} AND classroom_id = ${id}
+    LIMIT 1
   `;
 
-  if (assignment.length === 0) {
+  if (assignmentCheck.length === 0) {
     throw new ApiError(404, 'Assignment not found');
   }
 
-  // Insert or update submission
   await sql`
-    INSERT INTO assignment_submissions (assignment_id, student_id, score, completed_at)
-    VALUES (${assignmentId}, ${userId}, ${score || null}, NOW())
+    INSERT INTO assignment_submissions (assignment_id, student_id, score, completed_at, repetitions_completed)
+    VALUES (${assignmentId}, ${userId}, ${score || null}, NOW(), 1)
     ON CONFLICT (assignment_id, student_id) 
     DO UPDATE SET 
       score = ${score || null},
-      completed_at = NOW()
+      completed_at = NOW(),
+      repetitions_completed = assignment_submissions.repetitions_completed + 1
   `;
 
   return res.json({ success: true });
