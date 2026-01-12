@@ -17,3 +17,17 @@ run:
   env:
     - name: NODE_ENV
       value: production
+    - name: PORT
+      value: "3001"
+    - name: DATABASE_URL
+      value: "PLACEHOLDER_REPLACE_IN_AWS_CONSOLE"
+    - name: JWT_SECRET
+      value: "PLACEHOLDER_REPLACE_IN_AWS_CONSOLE"
+    - name: DEEPGRAM_API_KEY
+      value: "PLACEHOLDER_REPLACE_IN_AWS_CONSOLE"
+    - name: RESEND_API_KEY
+      value: "PLACEHOLDER_REPLACE_IN_AWS_CONSOLE"
+    - name: RESEND_FROM_EMAIL
+      value: "PLACEHOLDER_REPLACE_IN_AWS_CONSOLE"
+    - name: FRONTEND_URL
+      value: "https://www.thespanishblitz.com"
