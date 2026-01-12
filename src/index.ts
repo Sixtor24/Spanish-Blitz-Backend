@@ -10,6 +10,7 @@ import { createServer } from 'http';
 import { config } from './config/env.js';
 import { errorHandler } from './middleware/error.js';
 import { setupWebSocket } from './services/ws-hub.js';
+import { initializeDatabase } from './config/init-db.js';
 
 // Route imports
 import healthRouter from './routes/health.js';
@@ -77,19 +78,33 @@ app.use('/api/classrooms', classroomsRouter);
 // Error handling middleware (must be last)
 app.use(errorHandler);
 
-// Start server
+// Initialize database schema and start server
 const PORT = config.PORT;
-httpServer.listen(PORT, () => {
-  console.log('\n==============================================');
-  console.log(`🚀 Spanish Blitz API Server running on port ${PORT}`);
-  console.log(`📍 Environment: ${config.NODE_ENV}`);
-  console.log(`🌐 CORS enabled for: ${config.FRONTEND_URL}`);
-  console.log(`🔐 Auth URL: ${config.AUTH_URL}`);
-  console.log(`📊 Database: ${config.DATABASE_URL ? 'Connected' : 'Not configured'}`);
-  console.log(`🔌 WebSocket: Enabled (Speech Streaming)`);
-  console.log(`🎤 Deepgram: ${process.env.DEEPGRAM_API_KEY ? 'Configured' : 'Not configured'}`);
-  console.log('==============================================\n');
-});
+
+async function startServer() {
+  try {
+    // Initialize database schema once at startup
+    await initializeDatabase();
+    
+    // Start HTTP server
+    httpServer.listen(PORT, () => {
+      console.log('\n==============================================');
+      console.log(`🚀 Spanish Blitz API Server running on port ${PORT}`);
+      console.log(`📍 Environment: ${config.NODE_ENV}`);
+      console.log(`🌐 CORS enabled for: ${config.FRONTEND_URL}`);
+      console.log(`🔐 Auth URL: ${config.AUTH_URL}`);
+      console.log(`📊 Database: ${config.DATABASE_URL ? 'Connected' : 'Not configured'}`);
+      console.log(`🔌 WebSocket: Enabled (Speech Streaming)`);
+      console.log(`🎤 Deepgram: ${process.env.DEEPGRAM_API_KEY ? 'Configured' : 'Not configured'}`);
+      console.log('==============================================\n');
+    });
+  } catch (error) {
+    console.error('❌ Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
 
 export { app, httpServer };
 

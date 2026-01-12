@@ -9,76 +9,6 @@ import { withErrorHandler, ApiError } from '../middleware/error.js';
 const router = Router();
 
 /**
- * Ensure classroom tables exist
- */
-async function ensureClassroomTables() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS classrooms (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      teacher_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      description TEXT,
-      code VARCHAR(6) UNIQUE NOT NULL,
-      color VARCHAR(7) DEFAULT '#8B5CF6',
-      is_active BOOLEAN DEFAULT true,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS classroom_memberships (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      classroom_id UUID NOT NULL REFERENCES classrooms(id) ON DELETE CASCADE,
-      student_id TEXT NOT NULL,
-      joined_at TIMESTAMPTZ DEFAULT NOW(),
-      is_active BOOLEAN DEFAULT true,
-      UNIQUE(classroom_id, student_id)
-    )
-  `;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS assignments (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      classroom_id UUID NOT NULL REFERENCES classrooms(id) ON DELETE CASCADE,
-      deck_id UUID NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT,
-      due_date TIMESTAMPTZ,
-      created_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS assignment_submissions (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      assignment_id UUID NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
-      student_id TEXT NOT NULL,
-      score INTEGER,
-      completed_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE(assignment_id, student_id)
-    )
-  `;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS assignment_students (
-      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      assignment_id UUID NOT NULL REFERENCES assignments(id) ON DELETE CASCADE,
-      student_id TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      UNIQUE(assignment_id, student_id)
-    )
-  `;
-
-  // Create indexes if they don't exist
-  await sql`CREATE INDEX IF NOT EXISTS idx_classrooms_teacher ON classrooms(teacher_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_classrooms_code ON classrooms(code)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_memberships_classroom ON classroom_memberships(classroom_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS idx_memberships_student ON classroom_memberships(student_id)`;
-}
-
-/**
  * Generate unique 6-character classroom code
  */
 async function generateClassroomCode(): Promise<string> {
@@ -105,8 +35,6 @@ async function generateClassroomCode(): Promise<string> {
 router.get('/', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
   const user = await getCurrentUser(req.session!);
   const userId = String(user.id);
-
-  await ensureClassroomTables();
 
   // Get classrooms where user is teacher or student
   const classrooms = await sql`
@@ -157,8 +85,6 @@ router.post('/', requireAuth, withErrorHandler(async (req: AuthRequest, res) => 
     throw new ApiError(400, 'Classroom name is required');
   }
 
-  await ensureClassroomTables();
-
   const code = await generateClassroomCode();
 
   const rows = await sql`
@@ -185,8 +111,6 @@ router.delete('/:id', requireAuth, withErrorHandler(async (req: AuthRequest, res
   const userId = String(user.id);
   const { id } = req.params;
 
-  await ensureClassroomTables();
-
   // Verify user is the teacher
   const classroom = await sql`
     SELECT * FROM classrooms WHERE id = ${id} AND teacher_id = ${userId} LIMIT 1
@@ -210,8 +134,6 @@ router.get('/:id', requireAuth, withErrorHandler(async (req: AuthRequest, res) =
   const user = await getCurrentUser(req.session!);
   const userId = String(user.id);
   const { id } = req.params;
-
-  await ensureClassroomTables();
 
   const classrooms = await sql`
     SELECT 
@@ -271,8 +193,6 @@ router.patch('/:id', requireAuth, withErrorHandler(async (req: AuthRequest, res)
   const { id } = req.params;
   const { name, description, is_active } = req.body;
 
-  await ensureClassroomTables();
-
   // Verify teacher ownership
   const existing = await sql`
     SELECT id FROM classrooms 
@@ -307,8 +227,6 @@ router.delete('/:id', requireAuth, withErrorHandler(async (req: AuthRequest, res
   const userId = String(user.id);
   const { id } = req.params;
 
-  await ensureClassroomTables();
-
   // Verify teacher ownership
   const existing = await sql`
     SELECT id FROM classrooms 
@@ -337,8 +255,6 @@ router.post('/join', requireAuth, withErrorHandler(async (req: AuthRequest, res)
   if (!code || !code.trim()) {
     throw new ApiError(400, 'Classroom code is required');
   }
-
-  await ensureClassroomTables();
 
   const codeUpper = code.trim().toUpperCase();
 
@@ -396,8 +312,6 @@ router.get('/:id/students', requireAuth, withErrorHandler(async (req: AuthReques
   const userId = String(user.id);
   const { id } = req.params;
 
-  await ensureClassroomTables();
-
   // Verify access (teacher or member)
   const access = await sql`
     SELECT id FROM classrooms 
@@ -441,8 +355,6 @@ router.delete('/:id/students/:studentId', requireAuth, withErrorHandler(async (r
   const userId = String(user.id);
   const { id, studentId } = req.params;
 
-  await ensureClassroomTables();
-
   // Verify teacher ownership
   const classroom = await sql`
     SELECT id FROM classrooms 
@@ -479,8 +391,6 @@ router.post('/:id/assignments', requireAuth, withErrorHandler(async (req: AuthRe
   if (!deck_id || !title) {
     throw new ApiError(400, 'deck_id and title are required');
   }
-
-  await ensureClassroomTables();
 
   // Verify teacher ownership
   const classroom = await sql`
@@ -525,8 +435,6 @@ router.get('/:id/assignments', requireAuth, withErrorHandler(async (req: AuthReq
   const user = await getCurrentUser(req.session!);
   const userId = String(user.id);
   const { id } = req.params;
-
-  await ensureClassroomTables();
 
   // Verify access
   const access = await sql`
@@ -619,8 +527,6 @@ router.delete('/:id/assignments/:assignmentId', requireAuth, withErrorHandler(as
   const userId = String(user.id);
   const { id, assignmentId } = req.params;
 
-  await ensureClassroomTables();
-
   // Verify teacher ownership
   const classroom = await sql`
     SELECT id FROM classrooms 
@@ -646,8 +552,6 @@ router.post('/:id/assignments/:assignmentId/complete', requireAuth, withErrorHan
   const userId = String(user.id);
   const { id, assignmentId } = req.params;
   const { score } = req.body;
-
-  await ensureClassroomTables();
 
   // Verify student is member of classroom
   const membership = await sql`

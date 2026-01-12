@@ -10,33 +10,17 @@ import type { UpdateUserBody } from '../types/api.types.js';
 const router = Router();
 
 /**
- * Ensure user columns exist
- */
-async function ensureUserColumns() {
-  await sql`
-    DO $$
-    BEGIN
-      BEGIN
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_locale text;
-      EXCEPTION WHEN others THEN NULL; END;
-      BEGIN
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS has_seen_welcome boolean DEFAULT false;
-      EXCEPTION WHEN others THEN NULL; END;
-    END$$;
-  `;
-}
-
-/**
  * GET /api/users/current
  * Get current authenticated user
  */
 router.get('/current', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
-  await ensureUserColumns();
+  // Use user from session instead of querying by email for better performance
+  const user = await getCurrentUser(req.session!);
 
   const rows = await sql`
     SELECT id, email, display_name, role, preferred_locale, is_premium, plan, has_seen_welcome, created_at, updated_at
     FROM users
-    WHERE email = ${req.session!.user.email}
+    WHERE id = ${user.id}
     LIMIT 1
   `;
 
@@ -54,8 +38,7 @@ router.get('/current', requireAuth, withErrorHandler(async (req: AuthRequest, re
 router.patch('/current', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
   const body = req.body as UpdateUserBody;
   const { display_name, preferred_locale } = body;
-
-  await ensureUserColumns();
+  const user = await getCurrentUser(req.session!);
 
   const rows = await sql`
     UPDATE users
@@ -63,7 +46,7 @@ router.patch('/current', requireAuth, withErrorHandler(async (req: AuthRequest, 
       display_name = COALESCE(${display_name}, display_name),
       preferred_locale = COALESCE(${preferred_locale}, preferred_locale),
       updated_at = NOW()
-    WHERE email = ${req.session!.user.email}
+    WHERE id = ${user.id}
     RETURNING id, email, display_name, role, preferred_locale, is_premium, plan, has_seen_welcome, created_at, updated_at
   `;
 
@@ -79,14 +62,14 @@ router.patch('/current', requireAuth, withErrorHandler(async (req: AuthRequest, 
  * Mark welcome modal as seen
  */
 router.post('/mark-welcome-seen', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
-  await ensureUserColumns();
+  const user = await getCurrentUser(req.session!);
 
   const rows = await sql`
     UPDATE users
     SET 
       has_seen_welcome = true,
       updated_at = NOW()
-    WHERE email = ${req.session!.user.email}
+    WHERE id = ${user.id}
     RETURNING id, email, display_name, role, preferred_locale, is_premium, plan, has_seen_welcome
   `;
 
