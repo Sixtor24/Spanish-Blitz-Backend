@@ -9,6 +9,7 @@ import { ApiError } from './error.js';
 
 export interface AuthSession {
   user: {
+    id: string; // User ID from database
     email: string;
     name?: string;
     image?: string;
@@ -61,6 +62,7 @@ export const requireAuth = async (
     const user = userRows[0];
     req.session = {
       user: {
+        id: user.id, // Include userId to avoid redundant queries
         email: user.email,
         name: user.display_name,
       },
@@ -121,6 +123,7 @@ export const requireAdmin = async (
 
     req.session = {
       user: {
+        id: user.id,
         email: user.email,
         name: user.display_name,
       },

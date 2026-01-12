@@ -3,13 +3,9 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
 const router = Router();
 const execAsync = promisify(exec);
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Mapeo de locales a voces neuronales de Microsoft Edge
 const VOICE_MAP: Record<string, Record<'male' | 'female', string>> = {
@@ -75,39 +71,21 @@ router.post('/synthesize', async (req: Request, res: Response) => {
     await fs.mkdir(tempDir, { recursive: true });
 
     // Escapar texto para shell
-    const escapedText = text.replace(/'/g, "'\\''");
+    const escapedText = text.replace(/'/g, "'\\''" );
+
+    console.log(`🎤 [Edge TTS] Generating neural audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice}`);
 
     // Generar audio con edge-tts
-    // Intentar usar el ejecutable directamente, luego python3 -m edge_tts
-    const edgeTtsPath = process.env.EDGE_TTS_PATH;
-    let command: string;
+    const command = `edge-tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}" || python3 -m edge_tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}"`;
     
-    if (edgeTtsPath && edgeTtsPath.includes('/')) {
-      // Ruta local completa - ejecutar con python3
-      command = `python3 "${edgeTtsPath}" --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}"`;
-    } else {
-      // Intentar edge-tts directamente, luego python3 -m edge_tts
-      command = `edge-tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}" || python3 -m edge_tts --voice "${selectedVoice}" --text '${escapedText}' --write-media "${tempFile}"`;
-    }
-
-    console.log(`🎤 [Edge TTS] Generating neural audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice} (locale: ${locale}, gender: ${voiceGender})`);
-
-    await execAsync(command, { timeout: 10000 }); // 10 segundos timeout
-
-    // Verificar que el archivo existe
-    const stats = await fs.stat(tempFile);
-    if (stats.size === 0) {
-      throw new Error('Generated audio file is empty');
-    }
+    await execAsync(command, { timeout: 10000 });
 
     // Leer archivo y convertir a base64
     const audioBuffer = await fs.readFile(tempFile);
     const audioBase64 = audioBuffer.toString('base64');
 
     // Limpiar archivo temporal
-    await fs.unlink(tempFile).catch((err) => {
-      console.warn('[Edge TTS] Failed to delete temp file:', err.message);
-    });
+    await fs.unlink(tempFile).catch(() => {});
 
     // Guardar en caché
     audioCache.set(cacheKey, audioBase64);
@@ -118,7 +96,7 @@ router.post('/synthesize', async (req: Request, res: Response) => {
       if (firstKey) audioCache.delete(firstKey);
     }
 
-    console.log(`✅ [Edge TTS] Successfully generated ${stats.size} bytes of neural audio (cache size: ${audioCache.size})`);
+    console.log(`✅ [Edge TTS] Successfully generated neural audio (cache size: ${audioCache.size})`);
 
     res.json({
       audio: audioBase64,

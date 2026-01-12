@@ -14,8 +14,8 @@ const router = Router();
  * Record a study event
  */
 router.post('/', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
-  const user = await getCurrentUser(req.session!);
-  const userId = user.id;
+  // Get userId directly from session (already verified by requireAuth middleware)
+  const userId = req.session!.user.id;
 
   const body = req.body as CreateStudyEventBody & {
     deck_id?: string;

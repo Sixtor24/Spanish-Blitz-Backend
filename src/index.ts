@@ -22,7 +22,6 @@ import statsRouter from './routes/stats.js';
 import studyEventsRouter from './routes/study-events.js';
 import adminRouter from './routes/admin.js';
 import ttsRouter from './routes/tts.js';
-import speechRouter from './routes/speech.js';
 import classroomsRouter from './routes/classrooms.js';
 
 const app = express();
@@ -73,7 +72,6 @@ app.use('/api/stats', statsRouter);
 app.use('/api/study-events', studyEventsRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/tts', ttsRouter);
-app.use('/api/speech', speechRouter);
 app.use('/api/classrooms', classroomsRouter);
 
 // Error handling middleware (must be last)
