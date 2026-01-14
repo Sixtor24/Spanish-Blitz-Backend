@@ -5,7 +5,7 @@ const router = Router();
 
 // Initialize AWS Polly client
 const pollyClient = new PollyClient({ 
-  region: process.env.AWS_REGION || 'us-east-2'
+  region: process.env.AWS_REGION || 'us-east-1' // us-east-1 supports neural voices
 });
 
 // Mapeo de locales a voces neuronales de AWS Polly

@@ -30,7 +30,7 @@ export const config = {
   CORS_ORIGINS: process.env.CORS_ORIGINS || 'http://localhost:4000',
   
   // AWS
-  AWS_REGION: process.env.AWS_REGION || 'us-east-2',
+  AWS_REGION: process.env.AWS_REGION || 'us-east-1', // us-east-1 supports Polly neural voices
 } as const;
 
 // Validate required environment variables
