@@ -27,6 +27,7 @@ export const config = {
   // Application
   APP_BASE_URL: process.env.APP_BASE_URL || 'http://localhost:4000',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:4000',
+  CORS_ORIGINS: process.env.CORS_ORIGINS || 'http://localhost:4000',
 } as const;
 
 // Validate required environment variables

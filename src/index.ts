@@ -31,9 +31,10 @@ const httpServer = createServer(app);
 // Security middleware
 app.use(helmet());
 
-// CORS configuration - allow multiple frontend URLs for development
+// CORS configuration - allow multiple frontend URLs
+const corsOrigins = config.CORS_ORIGINS.split(',').map(origin => origin.trim());
 const allowedOrigins = [
-  config.FRONTEND_URL,
+  ...corsOrigins,
   'http://localhost:4000',
   'http://localhost:4001',
 ];
@@ -46,6 +47,7 @@ app.use(cors({
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.warn(`❌ CORS blocked origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
