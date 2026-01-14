@@ -9,14 +9,11 @@ const pollyClient = new PollyClient({
 });
 
 // Mapeo de locales a voces neuronales de AWS Polly
+// Solo incluimos los locales que Polly soporta nativamente
 const VOICE_MAP: Record<string, Record<'male' | 'female', string>> = {
-  'es-ES': { male: 'Sergio', female: 'Lucia' },
-  'es-MX': { male: 'Andres', female: 'Mia' },
-  'es-US': { male: 'Pedro', female: 'Lupe' },
-  // Polly usa es-ES para otros dialectos
-  'es-AR': { male: 'Sergio', female: 'Lucia' },
-  'es-CO': { male: 'Sergio', female: 'Lucia' },
-  'es-CL': { male: 'Sergio', female: 'Lucia' },
+  'es-ES': { male: 'Sergio', female: 'Lucia' },    // España (default)
+  'es-MX': { male: 'Andres', female: 'Mia' },      // México
+  'es-US': { male: 'Pedro', female: 'Lupe' },      // Estados Unidos
 };
 
 // Cache para almacenar audios generados (key: text-locale-gender)
@@ -67,13 +64,23 @@ router.post('/synthesize', async (req: Request, res: Response) => {
 
     console.log(`🎤 [AWS Polly] Generating neural audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice}`);
 
+    // Mapear locale a uno soportado por Polly
+    // Polly solo soporta: es-ES, es-MX, es-US
+    let pollyLocale = 'es-ES';
+    if (locale === 'es-MX') {
+      pollyLocale = 'es-MX';
+    } else if (locale === 'es-US') {
+      pollyLocale = 'es-US';
+    }
+    // Todos los demás (es-CO, es-AR, es-CL, etc.) usan es-ES
+    
     // Generar audio con AWS Polly
     const command = new SynthesizeSpeechCommand({
       Text: text,
       OutputFormat: 'mp3',
       VoiceId: selectedVoice as any, // Polly voice IDs
       Engine: 'neural',
-      LanguageCode: locale.startsWith('es-') ? locale : 'es-ES',
+      LanguageCode: pollyLocale as any, // Polly language codes
     });
 
     const response = await pollyClient.send(command);
