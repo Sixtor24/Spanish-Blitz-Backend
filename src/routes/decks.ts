@@ -425,13 +425,8 @@ router.post('/:deckId/cards/bulk', requireAuth, withErrorHandler(async (req: Aut
     }
   }
 
-  // Map incoming fields to existing schema
-  const values: any[] = [];
-  const placeholders: string[] = [];
-  let paramIndex = 1;
-
-  for (let i = 0; i < cards.length; i++) {
-    const card = cards[i];
+  // Map incoming fields to existing schema and prepare for bulk insert
+  const cardRows = cards.map((card, i) => {
     const question = (card.prompt_es || card.question || "").trim();
     const answer = (card.translation_en || card.answer_es || card.answer || "").trim();
     let notes = (card.notes || "").trim();
@@ -441,24 +436,21 @@ router.post('/:deckId/cards/bulk', requireAuth, withErrorHandler(async (req: Aut
     }
 
     // Truncate notes to 150 characters if exceeds limit, treat empty as null
-    if (notes) {
-      notes = notes.length > 150 ? notes.substring(0, 150) : notes;
-    } else {
-      notes = null;
-    }
+    const finalNotes = notes ? (notes.length > 150 ? notes.substring(0, 150) : notes) : null;
 
-    placeholders.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3})`);
-    values.push(deckId, question, answer, notes);
-    paramIndex += 4;
-  }
+    return {
+      deck_id: deckId,
+      question,
+      answer,
+      notes: finalNotes
+    };
+  });
 
-  const query = `
-    INSERT INTO cards (deck_id, question, answer, notes)
-    VALUES ${placeholders.join(", ")}
+  // Use postgres-js insert helper for proper parameter binding
+  const result = await sql`
+    INSERT INTO cards ${sql(cardRows, 'deck_id', 'question', 'answer', 'notes')}
     RETURNING *
   `;
-
-  const result = await sql(query, values);
 
   return res.json({ cards: result, count: result.length });
 }, 'POST /api/decks/:deckId/cards/bulk'));
