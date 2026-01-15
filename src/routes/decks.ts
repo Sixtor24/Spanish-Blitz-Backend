@@ -446,9 +446,10 @@ router.post('/:deckId/cards/bulk', requireAuth, withErrorHandler(async (req: Aut
     };
   });
 
-  // Use postgres-js insert helper for proper parameter binding
+  // Use postgres-js bulk insert with proper syntax
   const result = await sql`
-    INSERT INTO cards ${sql(cardRows, 'deck_id', 'question', 'answer', 'notes')}
+    INSERT INTO cards (deck_id, question, answer, notes)
+    SELECT * FROM ${sql(cardRows)}
     RETURNING *
   `;
 
