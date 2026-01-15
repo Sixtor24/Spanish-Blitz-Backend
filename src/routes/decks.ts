@@ -61,7 +61,8 @@ router.get('/', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
 
   const { search, filter } = req.query;
 
-  await ensureDeckColumns();
+  // Don't call ensureDeckColumns on every request - only on startup
+  // await ensureDeckColumns();
 
   let query = `
     SELECT 
@@ -73,7 +74,7 @@ router.get('/', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
       d.primary_color_hex,
       d.created_at,
       d.updated_at,
-      COUNT(c.id) as card_count
+      COUNT(c.id)::int as card_count
     FROM decks d
     LEFT JOIN cards c ON c.deck_id = d.id
     WHERE 1=1
@@ -124,6 +125,9 @@ router.get('/', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
     }
   }
 
+  // Add cache headers for better performance (30 seconds)
+  res.set('Cache-Control', 'private, max-age=30');
+  
   return res.json(rows);
 }, 'GET /api/decks'));
 
@@ -293,6 +297,7 @@ router.get('/:deckId/cards', withErrorHandler(async (req, res) => {
       answer,
       question as prompt_es,
       answer as translation_en,
+      notes,
       audio_url,
       image_url,
       created_at,
@@ -311,22 +316,26 @@ router.get('/:deckId/cards', withErrorHandler(async (req, res) => {
  */
 router.post('/:deckId/cards', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
   const { deckId } = req.params;
-  const body = req.body;
   const {
     prompt_es,
     answer_es,
-    distractor_1_es,
-    distractor_2_es,
-    distractor_3_es,
     notes,
     translation_en,
-  } = body;
+  } = req.body;
 
   const trimmedPrompt = (prompt_es || "").trim();
   const trimmedTranslation = (translation_en || "").trim();
+  let trimmedNotes = (notes || "").trim();
 
   if (!trimmedPrompt || !trimmedTranslation) {
     throw new ApiError(400, "Spanish prompt and English meaning are required.");
+  }
+
+  // Truncate notes to 150 characters, treat empty as null
+  if (trimmedNotes) {
+    trimmedNotes = trimmedNotes.length > 150 ? trimmedNotes.substring(0, 150) : trimmedNotes;
+  } else {
+    trimmedNotes = null;
   }
 
   // Check user plan and card limit
@@ -356,12 +365,9 @@ router.post('/:deckId/cards', requireAuth, withErrorHandler(async (req: AuthRequ
     }
   }
 
-  const question = trimmedPrompt;
-  const answer = trimmedTranslation;
-
   const rows = await sql`
-    INSERT INTO cards (deck_id, question, answer)
-    VALUES (${deckId}, ${question}, ${answer})
+    INSERT INTO cards (deck_id, question, answer, notes)
+    VALUES (${deckId}, ${trimmedPrompt}, ${trimmedTranslation}, ${trimmedNotes})
     RETURNING *
   `;
 
@@ -401,6 +407,12 @@ router.post('/:deckId/cards/bulk', requireAuth, withErrorHandler(async (req: Aut
 
     if (newTotalCards > 20) {
       const remainingSlots = Math.max(0, 20 - currentCardCount);
+      
+      // If this is the first batch of cards (deck is empty), delete the deck
+      if (currentCardCount === 0) {
+        await sql`DELETE FROM decks WHERE id = ${deckId}`;
+      }
+      
       return res.status(403).json({
         error: `Free accounts are limited to 20 cards per set. You can add ${remainingSlots} more card(s). Upgrade to Premium for unlimited cards.`,
         limit_exceeded: true,
@@ -408,6 +420,7 @@ router.post('/:deckId/cards/bulk', requireAuth, withErrorHandler(async (req: Aut
         current_count: currentCardCount,
         max_allowed: 20,
         remaining_slots: remainingSlots,
+        deck_deleted: currentCardCount === 0,
       });
     }
   }
@@ -421,18 +434,26 @@ router.post('/:deckId/cards/bulk', requireAuth, withErrorHandler(async (req: Aut
     const card = cards[i];
     const question = (card.prompt_es || card.question || "").trim();
     const answer = (card.translation_en || card.answer_es || card.answer || "").trim();
+    let notes = (card.notes || "").trim();
 
     if (!question || !answer) {
       throw new ApiError(400, `Each card needs a Spanish prompt and an English meaning (issue on line ${i + 1}).`);
     }
 
-    placeholders.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2})`);
-    values.push(deckId, question, answer);
-    paramIndex += 3;
+    // Truncate notes to 150 characters if exceeds limit, treat empty as null
+    if (notes) {
+      notes = notes.length > 150 ? notes.substring(0, 150) : notes;
+    } else {
+      notes = null;
+    }
+
+    placeholders.push(`($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3})`);
+    values.push(deckId, question, answer, notes);
+    paramIndex += 4;
   }
 
   const query = `
-    INSERT INTO cards (deck_id, question, answer)
+    INSERT INTO cards (deck_id, question, answer, notes)
     VALUES ${placeholders.join(", ")}
     RETURNING *
   `;

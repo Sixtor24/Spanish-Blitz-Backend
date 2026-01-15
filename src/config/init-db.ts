@@ -25,6 +25,16 @@ export async function initializeDatabase() {
       END$$;
     `;
 
+    // Ensure cards table has notes column
+    await sql`
+      DO $$
+      BEGIN
+        BEGIN
+          ALTER TABLE cards ADD COLUMN IF NOT EXISTS notes text;
+        EXCEPTION WHEN others THEN NULL; END;
+      END$$;
+    `;
+
     // Create classroom tables
     await sql`
       CREATE TABLE IF NOT EXISTS classrooms (

@@ -24,6 +24,7 @@ import studyEventsRouter from './routes/study-events.js';
 import adminRouter from './routes/admin.js';
 import ttsRouter from './routes/tts.js';
 import classroomsRouter from './routes/classrooms.js';
+import speechRouter from './routes/speech.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -76,6 +77,7 @@ app.use('/api/study-events', studyEventsRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/tts', ttsRouter);
 app.use('/api/classrooms', classroomsRouter);
+app.use('/api/speech', speechRouter);
 
 // Error handling middleware (must be last)
 app.use(errorHandler);

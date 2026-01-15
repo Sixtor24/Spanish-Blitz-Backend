@@ -38,6 +38,9 @@ router.get('/', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
     streak: Number(stats?.streak || 0),
   };
 
+  // Add cache headers for better performance (60 seconds)
+  res.set('Cache-Control', 'private, max-age=60');
+
   return res.json(response);
 }, 'GET /api/stats'));
 
