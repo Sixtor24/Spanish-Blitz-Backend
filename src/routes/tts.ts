@@ -81,7 +81,11 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
     console.log(`🎤 [Edge TTS] Generating audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice} at rate: ${rate}`);
 
     // Generar audio con Edge TTS con velocidad específica
-    const audioBuffer = await generateSpeech(text, selectedVoice, { rate });
+    const audioBuffer = await generateSpeech({
+      text,
+      voice: selectedVoice,
+      rate,
+    });
     const audioBase64 = Buffer.from(audioBuffer).toString('base64');
 
     // Guardar en caché
