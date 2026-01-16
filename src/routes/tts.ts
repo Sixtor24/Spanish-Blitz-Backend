@@ -24,7 +24,7 @@ const MAX_CACHE_SIZE = 500; // Increased cache size
  */
 router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    let { text, locale = 'es-ES', voice: voiceGender } = req.body;
+    let { text, locale = 'es-ES', voice: voiceGender, rate = '0%' } = req.body;
     
     // Obtener preferencia de género de voz del usuario si está autenticado
     let userPreferredGender: 'male' | 'female' = 'female';
@@ -63,7 +63,7 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
     const selectedVoice = VOICE_MAP[locale]?.[voiceGender as 'male' | 'female'] 
       || VOICE_MAP['es-ES'][voiceGender as 'male' | 'female'];
     
-    const cacheKey = `${text}-${locale}-${voiceGender}`;
+    const cacheKey = `${text}-${locale}-${voiceGender}-${rate}`;
 
     // Verificar caché
     if (audioCache.has(cacheKey)) {
@@ -78,13 +78,10 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
       });
     }
 
-    console.log(`🎤 [Edge TTS] Generating audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice}`);
+    console.log(`🎤 [Edge TTS] Generating audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice} at rate: ${rate}`);
 
-    // Generar audio con Edge TTS
-    const audioBuffer = await generateSpeech({
-      text,
-      voice: selectedVoice,
-    });
+    // Generar audio con Edge TTS con velocidad específica
+    const audioBuffer = await generateSpeech(text, selectedVoice, { rate });
     const audioBase64 = Buffer.from(audioBuffer).toString('base64');
 
     // Guardar en caché
