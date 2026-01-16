@@ -28,9 +28,6 @@ export const config = {
   APP_BASE_URL: process.env.APP_BASE_URL || 'http://localhost:4000',
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:4000',
   CORS_ORIGINS: process.env.CORS_ORIGINS || 'http://localhost:4000',
-  
-  // AWS
-  AWS_REGION: process.env.AWS_REGION || 'us-east-1', // us-east-1 supports Polly neural voices
 } as const;
 
 // Validate required environment variables

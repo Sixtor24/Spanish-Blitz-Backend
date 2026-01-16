@@ -31,6 +31,7 @@ export interface DbUser {
   display_name?: string | null;
   role?: 'user' | 'admin' | null;
   preferred_locale?: string | null;
+  preferred_voice_gender?: 'male' | 'female' | null;
   is_premium?: boolean | null;
   plan?: 'free' | 'premium' | null;
   has_seen_welcome?: boolean | null;
@@ -150,6 +151,7 @@ export interface BulkCreateCardsBody {
 export interface UpdateUserBody {
   display_name?: string;
   preferred_locale?: string;
+  preferred_voice_gender?: 'male' | 'female';
 }
 
 export interface UpdateUserAdminBody {

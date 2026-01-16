@@ -22,6 +22,9 @@ export async function initializeDatabase() {
         BEGIN
           ALTER TABLE users ADD COLUMN IF NOT EXISTS has_seen_welcome boolean DEFAULT false;
         EXCEPTION WHEN others THEN NULL; END;
+        BEGIN
+          ALTER TABLE users ADD COLUMN IF NOT EXISTS preferred_voice_gender text DEFAULT 'female';
+        EXCEPTION WHEN others THEN NULL; END;
       END$$;
     `;
 

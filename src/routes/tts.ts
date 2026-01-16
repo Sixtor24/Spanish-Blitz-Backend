@@ -1,42 +1,55 @@
 import { Router, type Request, type Response } from 'express';
-import { PollyClient, SynthesizeSpeechCommand } from '@aws-sdk/client-polly';
+import { generateSpeech } from '@bestcodes/edge-tts/dist/index.mjs';
+import { requireAuth, getCurrentUser, type AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
-// Initialize AWS Polly client
-const pollyClient = new PollyClient({ 
-  region: process.env.AWS_REGION || 'us-east-1' // us-east-1 supports neural voices
-});
-
-// Mapeo de locales a voces neuronales de AWS Polly
-// Solo incluimos los locales que Polly soporta nativamente
+// Microsoft Edge TTS voice mapping (from PRD)
 const VOICE_MAP: Record<string, Record<'male' | 'female', string>> = {
-  'es-ES': { male: 'Sergio', female: 'Lucia' },    // España (default)
-  'es-MX': { male: 'Andres', female: 'Mia' },      // México
-  'es-US': { male: 'Pedro', female: 'Lupe' },      // Estados Unidos
+  'es-ES': { male: 'es-ES-AlvaroNeural', female: 'es-ES-ElviraNeural' },    // España
+  'es-MX': { male: 'es-MX-JorgeNeural', female: 'es-MX-DaliaNeural' },      // México
+  'es-AR': { male: 'es-AR-TomasNeural', female: 'es-AR-ElenaNeural' },      // Argentina
+  'es-US': { male: 'es-US-AlonsoNeural', female: 'es-US-PalomaNeural' },    // Estados Unidos
+  'es-CO': { male: 'es-CO-GonzaloNeural', female: 'es-CO-SalomeNeural' },   // Colombia
+  'es-CL': { male: 'es-CL-LorenzoNeural', female: 'es-CL-CatalinaNeural' }, // Chile
 };
 
 // Cache para almacenar audios generados (key: text-locale-gender)
 const audioCache = new Map<string, string>();
+const MAX_CACHE_SIZE = 500; // Increased cache size
 
 /**
  * POST /api/tts/synthesize
- * Generate speech audio from text using AWS Polly Neural
+ * Generate speech audio from text using Microsoft Edge TTS
  */
-router.post('/synthesize', async (req: Request, res: Response) => {
+router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) => {
   try {
-    let { text, locale = 'es-ES', voice: voiceGender = 'male' } = req.body;
+    let { text, locale = 'es-ES', voice: voiceGender } = req.body;
+    
+    // Obtener preferencia de género de voz del usuario si está autenticado
+    let userPreferredGender: 'male' | 'female' = 'female';
+    try {
+      const user = await getCurrentUser(req.session!);
+      userPreferredGender = (user.preferred_voice_gender as 'male' | 'female') || 'female';
+    } catch (error) {
+      console.log('⚠️ Could not get user preferences, using default');
+    }
+    
+    // Si no se especifica género en la petición, usar preferencia del usuario
+    if (!voiceGender) {
+      voiceGender = userPreferredGender;
+    }
 
     if (!text || typeof text !== 'string') {
       return res.status(400).json({ error: 'Text is required' });
     }
 
-    // Validar longitud del texto
-    if (text.length > 3000) {
-      return res.status(400).json({ error: 'Text too long (max 3000 characters)' });
+    // Validar longitud del texto (Edge TTS limit is ~500 characters)
+    if (text.length > 500) {
+      return res.status(400).json({ error: 'Text too long (max 500 characters)' });
     }
 
-    // Normalizar locale
+    // Normalizar locale - remover sufijos de género si existen
     if (typeof locale === 'string' && (locale.includes('-male') || locale.includes('-female'))) {
       locale = locale.replace(/-male$|-female$/, '');
     }
@@ -46,78 +59,54 @@ router.post('/synthesize', async (req: Request, res: Response) => {
       voiceGender = 'male';
     }
 
-    const selectedVoice = VOICE_MAP[locale]?.[voiceGender as 'male' | 'female'] || VOICE_MAP['es-ES'][voiceGender as 'male' | 'female'] || VOICE_MAP['es-ES']['male'];
+    // Seleccionar voz - si locale no está en el mapa, usar es-ES por defecto
+    const selectedVoice = VOICE_MAP[locale]?.[voiceGender as 'male' | 'female'] 
+      || VOICE_MAP['es-ES'][voiceGender as 'male' | 'female'];
+    
     const cacheKey = `${text}-${locale}-${voiceGender}`;
 
     // Verificar caché
     if (audioCache.has(cacheKey)) {
-      console.log(`💾 [AWS Polly] Using cached audio for: "${text.substring(0, 50)}" (${selectedVoice})`);
+      console.log(`💾 [Edge TTS] Using cached audio for: "${text.substring(0, 50)}" (${selectedVoice})`);
       const cachedAudio = audioCache.get(cacheKey)!;
       return res.json({
         audio: cachedAudio,
         contentType: 'audio/mp3',
         voice: selectedVoice,
-        provider: 'AWS Polly Neural',
+        provider: 'Microsoft Edge TTS Neural',
         cached: true,
       });
     }
 
-    console.log(`🎤 [AWS Polly] Generating neural audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice}`);
+    console.log(`🎤 [Edge TTS] Generating audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice}`);
 
-    // Mapear locale a uno soportado por Polly
-    // Polly solo soporta: es-ES, es-MX, es-US
-    let pollyLocale = 'es-ES';
-    if (locale === 'es-MX') {
-      pollyLocale = 'es-MX';
-    } else if (locale === 'es-US') {
-      pollyLocale = 'es-US';
-    }
-    // Todos los demás (es-CO, es-AR, es-CL, etc.) usan es-ES
-    
-    // Generar audio con AWS Polly
-    const command = new SynthesizeSpeechCommand({
-      Text: text,
-      OutputFormat: 'mp3',
-      VoiceId: selectedVoice as any, // Polly voice IDs
-      Engine: 'neural',
-      LanguageCode: pollyLocale as any, // Polly language codes
+    // Generar audio con Edge TTS
+    const audioBuffer = await generateSpeech({
+      text,
+      voice: selectedVoice,
     });
-
-    const response = await pollyClient.send(command);
-    
-    if (!response.AudioStream) {
-      throw new Error('No audio stream received from Polly');
-    }
-
-    // Convertir stream a buffer y luego a base64
-    const chunks: Uint8Array[] = [];
-    const stream = response.AudioStream as any;
-    for await (const chunk of stream) {
-      chunks.push(chunk);
-    }
-    const audioBuffer = Buffer.concat(chunks);
-    const audioBase64 = audioBuffer.toString('base64');
+    const audioBase64 = Buffer.from(audioBuffer).toString('base64');
 
     // Guardar en caché
     audioCache.set(cacheKey, audioBase64);
 
-    // Limitar tamaño del caché a 100 elementos
-    if (audioCache.size > 100) {
+    // Limitar tamaño del caché
+    if (audioCache.size > MAX_CACHE_SIZE) {
       const firstKey = audioCache.keys().next().value;
       if (firstKey) audioCache.delete(firstKey);
     }
 
-    console.log(`✅ [AWS Polly] Successfully generated neural audio (cache size: ${audioCache.size})`);
+    console.log(`✅ [Edge TTS] Successfully generated audio (cache size: ${audioCache.size})`);
 
     res.json({
       audio: audioBase64,
       contentType: 'audio/mp3',
       voice: selectedVoice,
-      provider: 'AWS Polly Neural',
+      provider: 'Microsoft Edge TTS Neural',
       cached: false,
     });
   } catch (error: any) {
-    console.error('[AWS Polly] ❌ Synthesis error:', error.message);
+    console.error('[Edge TTS] ❌ Synthesis error:', error.message);
     res.status(500).json({
       error: 'TTS synthesis failed',
       details: error.message,
@@ -127,7 +116,7 @@ router.post('/synthesize', async (req: Request, res: Response) => {
 
 /**
  * GET /api/tts/voices
- * List available Spanish voices
+ * List available Spanish voices from Microsoft Edge TTS
  */
 router.get('/voices', async (req: Request, res: Response) => {
   try {
@@ -141,7 +130,11 @@ router.get('/voices', async (req: Request, res: Response) => {
       }))
     );
 
-    res.json({ voices, provider: 'Microsoft Edge TTS Neural' });
+    res.json({ 
+      voices, 
+      provider: 'Microsoft Edge TTS Neural',
+      count: voices.length
+    });
   } catch (error: any) {
     console.error('[TTS] ❌ Failed to list voices:', error.message);
     res.status(500).json({ error: 'Failed to list voices' });

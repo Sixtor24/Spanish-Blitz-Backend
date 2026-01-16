@@ -145,7 +145,7 @@ export const requireAdmin = async (
  */
 export async function getCurrentUser(session: AuthSession) {
   const userRows = await sql`
-    SELECT id, email, display_name, role, preferred_locale, is_premium, plan, has_seen_welcome
+    SELECT id, email, display_name, role, preferred_locale, preferred_voice_gender, is_premium, plan, has_seen_welcome
     FROM users
     WHERE email = ${session.user.email}
     LIMIT 1

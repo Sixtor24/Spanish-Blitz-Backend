@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@auth/core": "^0.37.2",
-    "@aws-sdk/client-polly": "^3.600.0",
+    "@bestcodes/edge-tts": "^3.0.1",
     "@deepgram/sdk": "^4.11.3",
     "@neondatabase/serverless": "^0.10.4",
     "argon2": "^0.43.0",
