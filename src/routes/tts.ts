@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import { generateSpeech } from '@bestcodes/edge-tts/dist/index.mjs';
-import { requireAuth, getCurrentUser, type AuthRequest } from '../middleware/auth';
+import { requireAuth, getCurrentUser, type AuthRequest } from '../middleware/auth.js';
 
 const router = Router();
 
