@@ -26,11 +26,28 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
   try {
     let { text, locale = 'es-ES', voice: voiceGender, rate } = req.body;
     
+    console.log('🎤 [TTS] Request received:', { 
+      text: text?.substring(0, 30) + '...', 
+      locale, 
+      voiceGender: voiceGender || 'not specified',
+      rate: rate || 'normal'
+    });
+    
     // Obtener preferencia de género de voz del usuario si está autenticado
     let userPreferredGender: 'male' | 'female' = 'female';
+    let userPreferredLocale: string = 'es-ES';
     try {
       const user = await getCurrentUser(req.session!);
       userPreferredGender = (user.preferred_voice_gender as 'male' | 'female') || 'female';
+      userPreferredLocale = user.preferred_locale || 'es-ES';
+      
+      console.log('👤 [TTS] User preferences:', {
+        email: user.email,
+        preferredLocale: userPreferredLocale,
+        preferredGender: userPreferredGender,
+        plan: user.plan,
+        isPremium: user.is_premium
+      });
     } catch (error) {
       console.log('⚠️ Could not get user preferences, using default');
     }
@@ -62,6 +79,12 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
     // Seleccionar voz - si locale no está en el mapa, usar es-ES por defecto
     const selectedVoice = VOICE_MAP[locale]?.[voiceGender as 'male' | 'female'] 
       || VOICE_MAP['es-ES'][voiceGender as 'male' | 'female'];
+    
+    console.log('🔊 [TTS] Selected voice:', {
+      locale,
+      gender: voiceGender,
+      voice: selectedVoice
+    });
     
     const cacheKey = `${text}-${locale}-${voiceGender}${rate ? `-${rate}` : ''}`;
 

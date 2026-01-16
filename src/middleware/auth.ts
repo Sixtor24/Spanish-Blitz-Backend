@@ -155,7 +155,15 @@ export async function getCurrentUser(session: AuthSession) {
     throw new ApiError(404, 'User not found');
   }
 
-  return userRows[0];
+  const user = userRows[0];
+  
+  // Admin users are always premium
+  if (user.role === 'admin') {
+    user.is_premium = true;
+    user.plan = 'premium';
+  }
+  
+  return user;
 }
 
 /**
