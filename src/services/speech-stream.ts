@@ -81,14 +81,14 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
     // Create Deepgram client
     const deepgram = createClient(deepgramApiKey);
 
-    // Create live connection optimized for Spanish and short words
+    // Create live connection optimized for Spanish - fast response
     const connection = deepgram.listen.live({
       model: 'nova-2', // Best balance of speed and accuracy
       language: 'es', // Always Spanish - platform for English speakers learning Spanish
       smart_format: true,
       punctuate: true,
       interim_results: true, // Real-time partial results
-      endpointing: 300, // 300ms silence before finalizing (better for short words like "piel")
+      endpointing: 100, // 100ms silence for fast response (works for slow/spelled words)
       utterances: false, // Don't split into utterances
       vad_events: false, // Don't send voice activity detection events
     });
@@ -219,7 +219,7 @@ export function sendAudioChunk(sessionId: string, audioBuffer: Buffer): boolean 
 }
 
 /**
- * Stop streaming session
+ * Stop streaming session and force finalization
  */
 export function stopSpeechStream(sessionId: string): void {
   const session = activeStreams.get(sessionId);
@@ -229,6 +229,12 @@ export function stopSpeechStream(sessionId: string): void {
 
   try {
     if (session.connection) {
+      // Finalize immediately to get last transcript without waiting for endpointing
+      try {
+        session.connection.finishRequest();
+      } catch (e) {
+        // Fallback if finishRequest not available
+      }
       session.connection.finish();
     }
   } catch (error: any) {
