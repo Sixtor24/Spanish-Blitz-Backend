@@ -81,14 +81,14 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
     // Create Deepgram client
     const deepgram = createClient(deepgramApiKey);
 
-    // Create live connection optimized for Spanish
+    // Create live connection optimized for Spanish and short words
     const connection = deepgram.listen.live({
       model: 'nova-2', // Best balance of speed and accuracy
       language: 'es', // Always Spanish - platform for English speakers learning Spanish
       smart_format: true,
       punctuate: true,
       interim_results: true, // Real-time partial results
-      endpointing: 1, // 150ms silence = muy rápido pero confiable
+      endpointing: 300, // 300ms silence before finalizing (better for short words like "piel")
       utterances: false, // Don't split into utterances
       vad_events: false, // Don't send voice activity detection events
     });
