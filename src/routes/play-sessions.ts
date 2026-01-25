@@ -1,14 +1,14 @@
 /**
  * Play Sessions routes (Blitz Challenges)
  */
-import { Router } from 'express';
+import { Router, type Router as ExpressRouter } from 'express';
 import { nanoid } from 'nanoid';
 import { sql } from '../config/database.js';
 import { getCurrentUserOr401 } from '../middleware/auth.js';
 import { withErrorHandler, ApiError } from '../middleware/error.js';
 import { broadcastSessionRefresh } from '../services/ws-hub.js';
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 const CODE_LENGTH = 6;
 const genCode = () => nanoid(CODE_LENGTH).toUpperCase();
@@ -26,7 +26,8 @@ async function buildState(sessionId: string | number, currentUserId: string) {
   
   const playerRows = await sql`
     SELECT p.id, p.user_id, p.score, p.state, p.is_host, u.display_name, u.email,
-      (SELECT count(*)::int FROM play_session_answers a WHERE a.player_id = p.id) AS answered_count
+      (SELECT count(*)::int FROM play_session_answers a WHERE a.player_id = p.id) AS answered_count,
+      COALESCE((SELECT xp_earned FROM xp_events WHERE user_id = p.user_id::text AND challenge_id = ${sessionId}::uuid AND mode = 'blitz_challenge' LIMIT 1), 0) AS xp_earned
     FROM play_session_players p
     JOIN users u ON u.id = p.user_id
     WHERE p.session_id = ${sessionId}

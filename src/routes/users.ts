@@ -18,7 +18,7 @@ router.get('/current', requireAuth, withErrorHandler(async (req: AuthRequest, re
   const user = await getCurrentUser(req.session!);
 
   const rows = await sql`
-    SELECT id, email, display_name, role, preferred_locale, preferred_voice_gender, is_premium, plan, has_seen_welcome, created_at, updated_at
+    SELECT id, email, display_name, role, preferred_locale, preferred_voice_gender, is_premium, plan, has_seen_welcome, xp_total, created_at, updated_at
     FROM users
     WHERE id = ${user.id}
     LIMIT 1
@@ -48,7 +48,7 @@ router.patch('/current', requireAuth, withErrorHandler(async (req: AuthRequest, 
       preferred_voice_gender = COALESCE(${preferred_voice_gender}, preferred_voice_gender),
       updated_at = NOW()
     WHERE id = ${user.id}
-    RETURNING id, email, display_name, role, preferred_locale, preferred_voice_gender, is_premium, plan, has_seen_welcome, created_at, updated_at
+    RETURNING id, email, display_name, role, preferred_locale, preferred_voice_gender, is_premium, plan, has_seen_welcome, xp_total, created_at, updated_at
   `;
 
   if (rows.length === 0) {
@@ -71,7 +71,7 @@ router.post('/mark-welcome-seen', requireAuth, withErrorHandler(async (req: Auth
       has_seen_welcome = true,
       updated_at = NOW()
     WHERE id = ${user.id}
-    RETURNING id, email, display_name, role, preferred_locale, preferred_voice_gender, is_premium, plan, has_seen_welcome
+    RETURNING id, email, display_name, role, preferred_locale, preferred_voice_gender, is_premium, plan, has_seen_welcome, xp_total
   `;
 
   if (rows.length === 0) {

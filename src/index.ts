@@ -1,7 +1,7 @@
 /**
  * Main entry point for The Spanish Blitz Backend API
  */
-import express from 'express';
+import express, { type Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import bodyParser from 'body-parser';
@@ -25,8 +25,9 @@ import adminRouter from './routes/admin.js';
 import ttsRouter from './routes/tts.js';
 import classroomsRouter from './routes/classrooms.js';
 import speechRouter from './routes/speech.js';
+import xpRouter from './routes/xp.js';
 
-const app = express();
+const app: Express = express();
 const httpServer = createServer(app);
 
 // Security middleware
@@ -78,6 +79,7 @@ app.use('/api/admin', adminRouter);
 app.use('/api/tts', ttsRouter);
 app.use('/api/classrooms', classroomsRouter);
 app.use('/api/speech', speechRouter);
+app.use('/api/xp', xpRouter);
 
 // Error handling middleware (must be last)
 app.use(errorHandler);

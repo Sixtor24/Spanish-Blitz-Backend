@@ -1,12 +1,12 @@
 /**
  * Classroom routes
  */
-import { Router } from 'express';
+import { Router, type Router as ExpressRouter } from 'express';
 import { sql } from '../config/database.js';
 import { requireAuth, getCurrentUser, type AuthRequest } from '../middleware/auth.js';
 import { withErrorHandler, ApiError } from '../middleware/error.js';
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 /**
  * Generate unique 6-character classroom code
@@ -386,10 +386,15 @@ router.post('/:id/assignments', requireAuth, withErrorHandler(async (req: AuthRe
   const user = await getCurrentUser(req.session!);
   const userId = String(user.id);
   const { id } = req.params;
-  const { deck_id, title, description, due_date, student_ids, required_repetitions } = req.body;
+  const { deck_id, title, description, due_date, student_ids, required_repetitions, xp_reward, xp_goal } = req.body;
 
-  if (!deck_id || !title) {
-    throw new ApiError(400, 'deck_id and title are required');
+  // Must have either deck_id, xp_goal, or both
+  if (!deck_id && !xp_goal) {
+    throw new ApiError(400, 'Must provide either deck_id, xp_goal, or both');
+  }
+
+  if (!title) {
+    throw new ApiError(400, 'title is required');
   }
 
   // Verify teacher ownership
@@ -404,8 +409,8 @@ router.post('/:id/assignments', requireAuth, withErrorHandler(async (req: AuthRe
   }
 
   const rows = await sql`
-    INSERT INTO assignments (classroom_id, deck_id, title, description, due_date, required_repetitions)
-    VALUES (${id}, ${deck_id}, ${title}, ${description || null}, ${due_date || null}, ${required_repetitions || 1})
+    INSERT INTO assignments (classroom_id, deck_id, title, description, due_date, required_repetitions, xp_reward, xp_goal)
+    VALUES (${id}, ${deck_id || null}, ${title}, ${description || null}, ${due_date || null}, ${required_repetitions || 1}, ${xp_reward || null}, ${xp_goal || null})
     RETURNING *
   `;
 
@@ -469,13 +474,14 @@ router.get('/:id/assignments', requireAuth, withErrorHandler(async (req: AuthReq
       SELECT 
         a.*,
         d.title as deck_title,
-        COUNT(DISTINCT s.student_id) FILTER (WHERE s.repetitions_completed >= a.required_repetitions) as completed_count,
+        COUNT(DISTINCT s.student_id) FILTER (WHERE s.repetitions_completed >= a.required_repetitions OR (a.xp_goal IS NOT NULL AND s.xp_earned_since_assignment >= a.xp_goal)) as completed_count,
         COUNT(DISTINCT cm.student_id) as total_students,
-        BOOL_OR(s.student_id = ${userId} AND s.repetitions_completed >= a.required_repetitions) as completed,
+        BOOL_OR(s.student_id = ${userId} AND (s.repetitions_completed >= a.required_repetitions OR (a.xp_goal IS NOT NULL AND s.xp_earned_since_assignment >= a.xp_goal))) as completed,
         MAX(CASE WHEN s.student_id = ${userId} THEN s.completed_at ELSE NULL END) as completed_at,
-        COALESCE(MAX(CASE WHEN s.student_id = ${userId} THEN s.repetitions_completed ELSE 0 END), 0) as repetitions_completed
+        COALESCE(MAX(CASE WHEN s.student_id = ${userId} THEN s.repetitions_completed ELSE 0 END), 0) as repetitions_completed,
+        COALESCE(MAX(CASE WHEN s.student_id = ${userId} THEN s.xp_earned_since_assignment ELSE 0 END), 0) as xp_progress
       FROM assignments a
-      JOIN decks d ON d.id = a.deck_id
+      LEFT JOIN decks d ON d.id = a.deck_id
       LEFT JOIN assignment_submissions s ON s.assignment_id = a.id
       LEFT JOIN classroom_memberships cm ON cm.classroom_id = a.classroom_id AND cm.is_active = true
       WHERE a.classroom_id = ${id}
@@ -488,13 +494,14 @@ router.get('/:id/assignments', requireAuth, withErrorHandler(async (req: AuthReq
       SELECT DISTINCT 
         a.*,
         d.title as deck_title,
-        COUNT(DISTINCT s.student_id) FILTER (WHERE s.repetitions_completed >= a.required_repetitions) as completed_count,
+        COUNT(DISTINCT s.student_id) FILTER (WHERE s.repetitions_completed >= a.required_repetitions OR (a.xp_goal IS NOT NULL AND s.xp_earned_since_assignment >= a.xp_goal)) as completed_count,
         COUNT(DISTINCT cm.student_id) as total_students,
-        BOOL_OR(s.student_id = ${userId} AND s.repetitions_completed >= a.required_repetitions) as completed,
+        BOOL_OR(s.student_id = ${userId} AND (s.repetitions_completed >= a.required_repetitions OR (a.xp_goal IS NOT NULL AND s.xp_earned_since_assignment >= a.xp_goal))) as completed,
         MAX(CASE WHEN s.student_id = ${userId} THEN s.completed_at ELSE NULL END) as completed_at,
-        COALESCE(MAX(CASE WHEN s.student_id = ${userId} THEN s.repetitions_completed ELSE 0 END), 0) as repetitions_completed
+        COALESCE(MAX(CASE WHEN s.student_id = ${userId} THEN s.repetitions_completed ELSE 0 END), 0) as repetitions_completed,
+        COALESCE(MAX(CASE WHEN s.student_id = ${userId} THEN s.xp_earned_since_assignment ELSE 0 END), 0) as xp_progress
       FROM assignments a
-      JOIN decks d ON d.id = a.deck_id
+      LEFT JOIN decks d ON d.id = a.deck_id
       LEFT JOIN assignment_submissions s ON s.assignment_id = a.id
       LEFT JOIN classroom_memberships cm ON cm.classroom_id = a.classroom_id AND cm.is_active = true
       WHERE a.classroom_id = ${id}
@@ -564,9 +571,9 @@ router.post('/:id/assignments/:assignmentId/complete', requireAuth, withErrorHan
     throw new ApiError(403, 'Not a member of this classroom');
   }
 
-  // Verify assignment exists
+  // Verify assignment exists and get xp_reward
   const assignmentCheck = await sql`
-    SELECT id FROM assignments 
+    SELECT id, xp_reward, required_repetitions FROM assignments 
     WHERE id = ${assignmentId} AND classroom_id = ${id}
     LIMIT 1
   `;
@@ -574,6 +581,18 @@ router.post('/:id/assignments/:assignmentId/complete', requireAuth, withErrorHan
   if (assignmentCheck.length === 0) {
     throw new ApiError(404, 'Assignment not found');
   }
+
+  const assignment = assignmentCheck[0];
+
+  // Check current submission status
+  const currentSubmission = await sql`
+    SELECT repetitions_completed FROM assignment_submissions
+    WHERE assignment_id = ${assignmentId} AND student_id = ${userId}
+    LIMIT 1
+  `;
+
+  const wasAlreadyCompleted = currentSubmission.length > 0 && 
+    currentSubmission[0].repetitions_completed >= assignment.required_repetitions;
 
   await sql`
     INSERT INTO assignment_submissions (assignment_id, student_id, score, completed_at, repetitions_completed)
@@ -584,6 +603,36 @@ router.post('/:id/assignments/:assignmentId/complete', requireAuth, withErrorHan
       completed_at = NOW(),
       repetitions_completed = assignment_submissions.repetitions_completed + 1
   `;
+
+  // Award XP if assignment has xp_reward and just completed all required repetitions
+  if (assignment.xp_reward && assignment.xp_reward > 0 && !wasAlreadyCompleted) {
+    const newRepetitions = currentSubmission.length > 0 
+      ? currentSubmission[0].repetitions_completed + 1 
+      : 1;
+
+    // Only award XP when reaching required_repetitions for the first time
+    if (newRepetitions >= assignment.required_repetitions) {
+      try {
+        // Insert XP event
+        await sql`
+          INSERT INTO xp_events (user_id, mode, xp_earned, assignment_id)
+          VALUES (${userId}, 'assignment', ${assignment.xp_reward}, ${assignmentId})
+        `;
+
+        // Update user's total XP
+        await sql`
+          UPDATE users
+          SET xp_total = xp_total + ${assignment.xp_reward}
+          WHERE id = ${userId}
+        `;
+
+        console.log(`✅ Awarded ${assignment.xp_reward} XP to user ${userId} for completing assignment ${assignmentId}`);
+      } catch (err) {
+        console.error('Error awarding assignment XP:', err);
+        // Don't fail the completion if XP award fails
+      }
+    }
+  }
 
   return res.json({ success: true });
 }, 'POST /api/classrooms/:id/assignments/:assignmentId/complete'));
