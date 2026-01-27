@@ -107,7 +107,42 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
     const options: any = { text, voice: selectedVoice };
     if (rate) options.rate = rate;
     
-    const audioBuffer = await generateSpeech(options);
+    let audioBuffer: ArrayBuffer;
+    try {
+      audioBuffer = await generateSpeech(options);
+      
+      if (!audioBuffer || audioBuffer.byteLength === 0) {
+        throw new Error('Generated audio is empty');
+      }
+      
+      console.log(`✅ [Edge TTS] Audio generated successfully (${audioBuffer.byteLength} bytes)`);
+    } catch (genError: any) {
+      console.error('[Edge TTS] ❌ Generation error:', {
+        message: genError.message,
+        stack: genError.stack?.substring(0, 200),
+        voice: selectedVoice,
+        textLength: text.length
+      });
+      
+      // Proporcionar mensaje más descriptivo según el tipo de error
+      let errorMessage = 'Failed to generate speech audio';
+      if (genError.message?.includes('network') || genError.message?.includes('fetch')) {
+        errorMessage = 'Network error connecting to TTS service. Check your internet connection.';
+      } else if (genError.message?.includes('timeout')) {
+        errorMessage = 'TTS request timed out. Please try again.';
+      } else if (genError.message?.includes('voice')) {
+        errorMessage = `Voice "${selectedVoice}" is not available`;
+      }
+      
+      return res.status(500).json({
+        error: errorMessage,
+        details: genError.message,
+        voice: selectedVoice,
+        locale,
+        suggestion: 'If the error persists, try using a different Spanish dialect in your profile settings.'
+      });
+    }
+    
     const audioBase64 = Buffer.from(audioBuffer).toString('base64');
 
     // Guardar en caché
@@ -119,7 +154,7 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
       if (firstKey) audioCache.delete(firstKey);
     }
 
-    console.log(`✅ [Edge TTS] Successfully generated audio (cache size: ${audioCache.size})`);
+    console.log(`✅ [Edge TTS] Successfully generated and cached audio (cache size: ${audioCache.size})`);
 
     res.json({
       audio: audioBase64,
@@ -129,10 +164,16 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
       cached: false,
     });
   } catch (error: any) {
-    console.error('[Edge TTS] ❌ Synthesis error:', error.message);
+    console.error('[Edge TTS] ❌ Unexpected synthesis error:', {
+      message: error.message,
+      stack: error.stack?.substring(0, 300),
+      env: process.env.NODE_ENV
+    });
+    
     res.status(500).json({
-      error: 'TTS synthesis failed',
+      error: 'TTS synthesis failed unexpectedly',
       details: error.message,
+      suggestion: 'Please check server logs for more details.'
     });
   }
 });

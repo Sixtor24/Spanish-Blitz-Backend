@@ -335,6 +335,7 @@ router.get('/:id/students', requireAuth, withErrorHandler(async (req: AuthReques
       u.id,
       u.email,
       u.display_name,
+      u.xp_total,
       cm.joined_at,
       cm.is_active
     FROM classroom_memberships cm
@@ -475,7 +476,10 @@ router.get('/:id/assignments', requireAuth, withErrorHandler(async (req: AuthReq
         a.*,
         d.title as deck_title,
         COUNT(DISTINCT s.student_id) FILTER (WHERE s.repetitions_completed >= a.required_repetitions OR (a.xp_goal IS NOT NULL AND s.xp_earned_since_assignment >= a.xp_goal)) as completed_count,
-        COUNT(DISTINCT cm.student_id) as total_students,
+        COALESCE(
+          (SELECT COUNT(*) FROM assignment_students WHERE assignment_id = a.id),
+          COUNT(DISTINCT cm.student_id)
+        ) as total_students,
         BOOL_OR(s.student_id = ${userId} AND (s.repetitions_completed >= a.required_repetitions OR (a.xp_goal IS NOT NULL AND s.xp_earned_since_assignment >= a.xp_goal))) as completed,
         MAX(CASE WHEN s.student_id = ${userId} THEN s.completed_at ELSE NULL END) as completed_at,
         COALESCE(MAX(CASE WHEN s.student_id = ${userId} THEN s.repetitions_completed ELSE 0 END), 0) as repetitions_completed,
@@ -495,7 +499,10 @@ router.get('/:id/assignments', requireAuth, withErrorHandler(async (req: AuthReq
         a.*,
         d.title as deck_title,
         COUNT(DISTINCT s.student_id) FILTER (WHERE s.repetitions_completed >= a.required_repetitions OR (a.xp_goal IS NOT NULL AND s.xp_earned_since_assignment >= a.xp_goal)) as completed_count,
-        COUNT(DISTINCT cm.student_id) as total_students,
+        COALESCE(
+          (SELECT COUNT(*) FROM assignment_students WHERE assignment_id = a.id),
+          COUNT(DISTINCT cm.student_id)
+        ) as total_students,
         BOOL_OR(s.student_id = ${userId} AND (s.repetitions_completed >= a.required_repetitions OR (a.xp_goal IS NOT NULL AND s.xp_earned_since_assignment >= a.xp_goal))) as completed,
         MAX(CASE WHEN s.student_id = ${userId} THEN s.completed_at ELSE NULL END) as completed_at,
         COALESCE(MAX(CASE WHEN s.student_id = ${userId} THEN s.repetitions_completed ELSE 0 END), 0) as repetitions_completed,
