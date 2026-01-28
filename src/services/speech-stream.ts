@@ -174,26 +174,17 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
       }
     });
 
-    // Handle connection close
+    // Handle Deepgram connection close
     connection.on('close', () => {
-      console.log(`🔌 [Speech Stream] Connection closed: ${sessionId}`);
+      console.log(`🔌 [Speech Stream] Deepgram connection closed: ${sessionId}`);
       activeStreams.delete(sessionId);
-      if (ws.readyState === 1) {
-        ws.send(JSON.stringify({
-          type: 'stream:closed',
-          sessionId,
-        }));
-      }
+      // DO NOT send stream:closed to client - client WebSocket stays open
+      // DO NOT close client WebSocket - it's persistent and reused
     });
 
-    // Handle WebSocket close
-    ws.on('close', () => {
-      stopSpeechStream(sessionId);
-    });
-
-    ws.on('error', () => {
-      stopSpeechStream(sessionId);
-    });
+    // NOTE: WebSocket close/error handlers are NOT added here
+    // The client WebSocket is persistent and managed by ws-hub.ts
+    // Only Deepgram sessions are created/destroyed per recording
 
   } catch (error: any) {
     console.error(`❌ [Speech Stream] Failed to start session (${sessionId}):`, error);
@@ -235,12 +226,16 @@ export function sendAudioChunk(sessionId: string, audioBuffer: Buffer): boolean 
 
 /**
  * Stop streaming session and force finalization
+ * IMPORTANT: This only closes the Deepgram session, NOT the client WebSocket
  */
 export function stopSpeechStream(sessionId: string): void {
   const session = activeStreams.get(sessionId);
-  if (!session) return;
+  if (!session) {
+    console.log(`⚠️ [Speech Stream] Session ${sessionId} already stopped or not found`);
+    return;
+  }
 
-  console.log(`🛑 [Speech Stream] Stopping session: ${sessionId}`);
+  console.log(`🛑 [Speech Stream] Stopping Deepgram session: ${sessionId}`);
 
   try {
     // Clear keepalive timer
@@ -256,18 +251,20 @@ export function stopSpeechStream(sessionId: string): void {
         // Fallback if finishRequest not available
       }
       
-      // Close connection gracefully
+      // Close Deepgram connection gracefully
       try {
         session.connection.finish();
       } catch (e) {
-        console.warn(`⚠️ [Speech Stream] Error finishing connection for ${sessionId}`);
+        console.warn(`⚠️ [Speech Stream] Error finishing Deepgram connection for ${sessionId}`);
       }
     }
   } catch (error: any) {
     console.error(`❌ [Speech Stream] Error stopping session (${sessionId}):`, error);
   }
 
+  // Remove from active sessions
   activeStreams.delete(sessionId);
+  console.log(`✅ [Speech Stream] Session ${sessionId} stopped, client WebSocket remains open`);
 }
 
 /**
