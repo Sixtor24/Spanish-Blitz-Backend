@@ -124,6 +124,20 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
         textLength: text.length
       });
       
+      // Detectar error 403 de Microsoft (servicio bloqueado/rate limited)
+      const is403Error = genError.message?.includes('403') || 
+                        genError.message?.toLowerCase().includes('forbidden');
+      
+      if (is403Error) {
+        console.warn('⚠️ [Edge TTS] Microsoft service blocked (403) - frontend will fallback to Web Speech API');
+        return res.status(503).json({
+          error: 'Edge TTS temporarily unavailable',
+          details: 'Microsoft TTS service is currently unavailable',
+          fallback: 'web-speech-api',
+          suggestion: 'Using browser native speech synthesis as fallback'
+        });
+      }
+      
       // Proporcionar mensaje más descriptivo según el tipo de error
       let errorMessage = 'Failed to generate speech audio';
       if (genError.message?.includes('network') || genError.message?.includes('fetch')) {

@@ -16,29 +16,70 @@ const router: ExpressRouter = Router();
  */
 async function updateAssignmentXpProgress(userId: string, xpEarned: number) {
   try {
+    console.log(`🎯 [XP Progress] Checking assignments for user ${userId}, XP earned: ${xpEarned}`);
+    
     // Get all active assignments with xp_goal for this user
+    // Include BOTH: specific assignments (in assignment_students) AND "All students" assignments
     const assignments = await sql`
-      SELECT 
+      SELECT DISTINCT
         a.id as assignment_id,
+        a.classroom_id,
+        a.title,
         a.xp_goal,
         a.xp_reward,
         asub.xp_earned_since_assignment,
-        asub.completed_at
+        asub.completed_at,
+        CASE 
+          WHEN EXISTS (SELECT 1 FROM assignment_students WHERE assignment_id = a.id) THEN 'specific'
+          ELSE 'all_students'
+        END as assignment_type
       FROM assignments a
-      JOIN assignment_students astud ON astud.assignment_id = a.id
+      JOIN classroom_memberships cm ON cm.classroom_id = a.classroom_id AND cm.student_id = ${userId} AND cm.is_active = true
+      LEFT JOIN assignment_students astud ON astud.assignment_id = a.id
       LEFT JOIN assignment_submissions asub ON asub.assignment_id = a.id AND asub.student_id = ${userId}
-      WHERE astud.student_id = ${userId}
-        AND a.xp_goal IS NOT NULL
+      WHERE a.xp_goal IS NOT NULL
         AND a.xp_goal > 0
         AND (asub.completed_at IS NULL OR asub.xp_earned_since_assignment < a.xp_goal)
+        AND (
+          astud.student_id = ${userId}
+          OR NOT EXISTS (SELECT 1 FROM assignment_students WHERE assignment_id = a.id)
+        )
     `;
 
+    console.log(`📊 [XP Progress] Found ${assignments.length} active XP goal assignments for user`);
+    
+    if (assignments.length === 0) {
+      console.log(`⚠️ [XP Progress] No active XP goal assignments found. Checking why...`);
+      
+      // Debug: Check if user is in any classroom
+      const classrooms = await sql`
+        SELECT classroom_id, is_active FROM classroom_memberships WHERE student_id = ${userId}
+      `;
+      console.log(`📚 [XP Progress] User is in ${classrooms.length} classrooms:`, classrooms);
+      
+      // Debug: Check all assignments with xp_goal
+      const allXpAssignments = await sql`
+        SELECT id, title, classroom_id, xp_goal FROM assignments WHERE xp_goal IS NOT NULL AND xp_goal > 0
+      `;
+      console.log(`📝 [XP Progress] All XP goal assignments in system:`, allXpAssignments);
+    }
+
     for (const assignment of assignments) {
+      console.log(`\n🔄 [XP Progress] Processing assignment "${assignment.title}" (${assignment.assignment_type})`);
+      console.log(`   - Assignment ID: ${assignment.assignment_id}`);
+      console.log(`   - XP Goal: ${assignment.xp_goal}`);
+      console.log(`   - Current Progress: ${assignment.xp_earned_since_assignment || 0}`);
+      console.log(`   - XP to add: ${xpEarned}`);
+      
       const newXpProgress = (assignment.xp_earned_since_assignment || 0) + xpEarned;
       const isNowCompleted = newXpProgress >= assignment.xp_goal;
 
+      console.log(`   - New XP Progress: ${newXpProgress}/${assignment.xp_goal}`);
+      console.log(`   - Completed: ${isNowCompleted ? 'YES' : 'NO'}`);
+
       // Update or insert submission
-      await sql`
+      const completedTimestamp = isNowCompleted ? new Date() : null;
+      const result = await sql`
         INSERT INTO assignment_submissions (
           assignment_id, 
           student_id, 
@@ -49,7 +90,7 @@ async function updateAssignmentXpProgress(userId: string, xpEarned: number) {
           ${assignment.assignment_id},
           ${userId},
           ${newXpProgress},
-          ${isNowCompleted ? sql`NOW()` : null}
+          ${completedTimestamp}
         )
         ON CONFLICT (assignment_id, student_id)
         DO UPDATE SET
@@ -57,10 +98,13 @@ async function updateAssignmentXpProgress(userId: string, xpEarned: number) {
           completed_at = CASE 
             WHEN assignment_submissions.xp_earned_since_assignment + ${xpEarned} >= ${assignment.xp_goal} 
             AND assignment_submissions.completed_at IS NULL
-            THEN NOW()
+            THEN ${new Date()}
             ELSE assignment_submissions.completed_at
           END
+        RETURNING xp_earned_since_assignment, completed_at
       `;
+
+      console.log(`   ✅ Updated submission:`, result[0]);
 
       // Award xp_reward if just completed
       if (isNowCompleted && !assignment.completed_at && assignment.xp_reward && assignment.xp_reward > 0) {
@@ -78,11 +122,13 @@ async function updateAssignmentXpProgress(userId: string, xpEarned: number) {
           WHERE id = ${userId}
         `;
 
-        console.log(`✅ Assignment XP Goal completed! Awarded ${assignment.xp_reward} XP bonus to user ${userId}`);
+        console.log(`🎉 Assignment XP Goal completed! Awarded ${assignment.xp_reward} XP bonus to user ${userId}`);
       }
     }
+    
+    console.log(`✅ [XP Progress] Finished processing all assignments\n`);
   } catch (error) {
-    console.error('Error updating assignment XP progress:', error);
+    console.error('❌ [XP Progress] Error updating assignment XP progress:', error);
     // Don't throw - this is a background operation
   }
 }

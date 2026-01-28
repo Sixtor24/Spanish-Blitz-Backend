@@ -16,8 +16,9 @@ interface StreamingSession {
 const activeStreams = new Map<string, StreamingSession>();
 
 // Constants
-const SESSION_TIMEOUT = 30000; // 30 seconds timeout for inactive sessions
-const MAX_SESSIONS = 100; // Maximum concurrent sessions
+const SESSION_TIMEOUT = 15000; // 15 seconds timeout for inactive sessions (reduced)
+const MAX_SESSIONS = 200; // Maximum concurrent sessions (increased for Blitz Challenge)
+const KEEPALIVE_INTERVAL = 5000; // Send keepalive every 5s
 
 /**
  * Clean up old sessions
@@ -81,25 +82,39 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
     // Create Deepgram client
     const deepgram = createClient(deepgramApiKey);
 
-    // Create live connection optimized for Spanish - fast response
+    // Create live connection optimized for Spanish - ULTRA FAST like Duolingo
     const connection = deepgram.listen.live({
       model: 'nova-2', // Best balance of speed and accuracy
       language: 'es', // Always Spanish - platform for English speakers learning Spanish
       smart_format: true,
       punctuate: true,
-      interim_results: true, // Real-time partial results
-      endpointing: 100, // 100ms silence for fast response (works for slow/spelled words)
+      interim_results: true, // Real-time partial results for immediate feedback
+      endpointing: 300, // 300ms silence threshold (optimal for single words and short phrases)
       utterances: false, // Don't split into utterances
-      vad_events: false, // Don't send voice activity detection events
+      vad_events: true, // Enable VAD for better silence detection
+      filler_words: false, // Don't include filler words (um, uh)
+      channels: 1, // Mono audio
+      sample_rate: 16000, // 16kHz optimal for speech
     });
 
-    // Store session
+    // Store session with keepalive
+    const keepaliveTimer = setInterval(() => {
+      if (connection && connection.getReadyState() === 1) {
+        try {
+          connection.keepAlive();
+        } catch (e) {
+          console.warn(`⚠️ [Speech Stream] Keepalive failed for ${sessionId}`);
+        }
+      }
+    }, KEEPALIVE_INTERVAL);
+
     activeStreams.set(sessionId, {
       connection,
       locale,
       isActive: true,
       startTime: Date.now(),
-    });
+      keepaliveTimer,
+    } as any);
 
     // Handle connection open
     connection.on('open', () => {
@@ -228,6 +243,11 @@ export function stopSpeechStream(sessionId: string): void {
   console.log(`🛑 [Speech Stream] Stopping session: ${sessionId}`);
 
   try {
+    // Clear keepalive timer
+    if ((session as any).keepaliveTimer) {
+      clearInterval((session as any).keepaliveTimer);
+    }
+
     if (session.connection) {
       // Finalize immediately to get last transcript without waiting for endpointing
       try {
@@ -235,7 +255,13 @@ export function stopSpeechStream(sessionId: string): void {
       } catch (e) {
         // Fallback if finishRequest not available
       }
-      session.connection.finish();
+      
+      // Close connection gracefully
+      try {
+        session.connection.finish();
+      } catch (e) {
+        console.warn(`⚠️ [Speech Stream] Error finishing connection for ${sessionId}`);
+      }
     }
   } catch (error: any) {
     console.error(`❌ [Speech Stream] Error stopping session (${sessionId}):`, error);
