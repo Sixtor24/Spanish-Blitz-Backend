@@ -1,6 +1,12 @@
 import { Router, type Request, type Response } from 'express';
 import { generateSpeech } from '@bestcodes/edge-tts/dist/index.mjs';
 import { requireAuth, getCurrentUser, type AuthRequest } from '../middleware/auth.js';
+import { 
+  synthesizeGoogleTTS, 
+  listGoogleVoices, 
+  getRecommendedGoogleVoice,
+  checkGoogleTTSConfig 
+} from '../services/google-cloud-tts.js';
 
 const router = Router();
 
@@ -33,18 +39,25 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
       rate: rate || 'normal'
     });
     
-    // Obtener preferencia de género de voz del usuario si está autenticado
+    // Obtener preferencias de TTS del usuario
     let userPreferredGender: 'male' | 'female' = 'female';
     let userPreferredLocale: string = 'es-ES';
+    let userTTSProvider: 'edge' | 'google' = 'edge';
+    let userVoiceId: string | null = null;
+    
     try {
       const user = await getCurrentUser(req.session!);
       userPreferredGender = (user.preferred_voice_gender as 'male' | 'female') || 'female';
       userPreferredLocale = user.preferred_locale || 'es-ES';
+      userTTSProvider = (user as any).tts_provider || 'edge';
+      userVoiceId = (user as any).tts_voice_id || null;
       
       console.log('👤 [TTS] User preferences:', {
         email: user.email,
         preferredLocale: userPreferredLocale,
         preferredGender: userPreferredGender,
+        ttsProvider: userTTSProvider,
+        voiceId: userVoiceId,
         plan: user.plan,
         isPremium: user.is_premium
       });
@@ -56,6 +69,9 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
     if (!voiceGender) {
       voiceGender = userPreferredGender;
     }
+    
+    // Determinar provider a usar
+    const provider = userTTSProvider;
 
     if (!text || typeof text !== 'string') {
       return res.status(400).json({ error: 'Text is required' });
@@ -76,66 +92,96 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
       voiceGender = 'male';
     }
 
-    // Seleccionar voz - si locale no está en el mapa, usar es-ES por defecto
-    const selectedVoice = VOICE_MAP[locale]?.[voiceGender as 'male' | 'female'] 
-      || VOICE_MAP['es-ES'][voiceGender as 'male' | 'female'];
+    // Determinar voz según el provider
+    let selectedVoice: string;
+    if (provider === 'google') {
+      // Si el usuario tiene una voz específica configurada, usarla
+      selectedVoice = userVoiceId || getRecommendedGoogleVoice(locale, voiceGender as 'male' | 'female');
+    } else {
+      // Edge TTS (default)
+      selectedVoice = VOICE_MAP[locale]?.[voiceGender as 'male' | 'female'] 
+        || VOICE_MAP['es-ES'][voiceGender as 'male' | 'female'];
+    }
     
     console.log('🔊 [TTS] Selected voice:', {
+      provider,
       locale,
       gender: voiceGender,
       voice: selectedVoice
     });
     
-    const cacheKey = `${text}-${locale}-${voiceGender}${rate ? `-${rate}` : ''}`;
+    const cacheKey = `${provider}-${text}-${locale}-${voiceGender}${rate ? `-${rate}` : ''}`;
 
     // Verificar caché
     if (audioCache.has(cacheKey)) {
-      console.log(`💾 [Edge TTS] Using cached audio for: "${text.substring(0, 50)}" (${selectedVoice})`);
+      console.log(`💾 [${provider.toUpperCase()} TTS] Using cached audio for: "${text.substring(0, 50)}" (${selectedVoice})`);
       const cachedAudio = audioCache.get(cacheKey)!;
       return res.json({
         audio: cachedAudio,
         contentType: 'audio/mp3',
         voice: selectedVoice,
-        provider: 'Microsoft Edge TTS Neural',
+        provider: provider === 'google' ? 'Google Cloud TTS' : 'Microsoft Edge TTS Neural',
         cached: true,
       });
     }
 
-    console.log(`🎤 [Edge TTS] Generating audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice}${rate ? ` at rate: ${rate}` : ''}`);
+    console.log(`🎤 [${provider.toUpperCase()} TTS] Generating audio for: "${text.substring(0, 50)}..." with voice: ${selectedVoice}${rate ? ` at rate: ${rate}` : ''}`);
 
-    // Generar audio con Edge TTS
-    const options: any = { text, voice: selectedVoice };
-    if (rate) options.rate = rate;
-    
-    let audioBuffer: ArrayBuffer;
+    let audioBuffer: Buffer | ArrayBuffer;
     try {
-      audioBuffer = await generateSpeech(options);
+      if (provider === 'google') {
+        // Google Cloud TTS
+        audioBuffer = await synthesizeGoogleTTS(
+          text,
+          selectedVoice,
+          locale,
+          rate || '1.0'
+        );
+      } else {
+        // Edge TTS (default)
+        const options: any = { text, voice: selectedVoice };
+        if (rate) options.rate = rate;
+        audioBuffer = await generateSpeech(options);
+      }
       
       if (!audioBuffer || audioBuffer.byteLength === 0) {
         throw new Error('Generated audio is empty');
       }
       
-      console.log(`✅ [Edge TTS] Audio generated successfully (${audioBuffer.byteLength} bytes)`);
+      const bufferLength = audioBuffer instanceof Buffer ? audioBuffer.length : audioBuffer.byteLength;
+      console.log(`✅ [${provider.toUpperCase()} TTS] Audio generated successfully (${bufferLength} bytes)`);
     } catch (genError: any) {
-      console.error('[Edge TTS] ❌ Generation error:', {
+      console.error(`[${provider.toUpperCase()} TTS] ❌ Generation error:`, {
         message: genError.message,
         stack: genError.stack?.substring(0, 200),
         voice: selectedVoice,
         textLength: text.length
       });
       
-      // Detectar error 403 de Microsoft (servicio bloqueado/rate limited)
-      const is403Error = genError.message?.includes('403') || 
-                        genError.message?.toLowerCase().includes('forbidden');
-      
-      if (is403Error) {
-        console.warn('⚠️ [Edge TTS] Microsoft service blocked (403) - frontend will fallback to Web Speech API');
-        return res.status(503).json({
-          error: 'Edge TTS temporarily unavailable',
-          details: 'Microsoft TTS service is currently unavailable',
-          fallback: 'web-speech-api',
-          suggestion: 'Using browser native speech synthesis as fallback'
-        });
+      // Detectar errores específicos del provider
+      if (provider === 'edge') {
+        const is403Error = genError.message?.includes('403') || 
+                          genError.message?.toLowerCase().includes('forbidden');
+        
+        if (is403Error) {
+          console.warn('⚠️ [Edge TTS] Microsoft service blocked (403) - frontend will fallback to Web Speech API');
+          return res.status(503).json({
+            error: 'Edge TTS temporarily unavailable',
+            details: 'Microsoft TTS service is currently unavailable',
+            fallback: 'web-speech-api',
+            suggestion: 'Using browser native speech synthesis as fallback'
+          });
+        }
+      } else if (provider === 'google') {
+        // Errores de Google Cloud TTS
+        if (genError.message?.includes('GOOGLE_APPLICATION_CREDENTIALS')) {
+          console.error('❌ [Google TTS] Credentials not configured');
+          return res.status(500).json({
+            error: 'Google TTS not configured',
+            details: 'Server configuration error',
+            suggestion: 'Contact support or switch to Edge TTS in your profile'
+          });
+        }
       }
       
       // Proporcionar mensaje más descriptivo según el tipo de error
@@ -157,7 +203,9 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
       });
     }
     
-    const audioBase64 = Buffer.from(audioBuffer).toString('base64');
+    const audioBase64 = audioBuffer instanceof Buffer 
+      ? audioBuffer.toString('base64')
+      : Buffer.from(new Uint8Array(audioBuffer)).toString('base64');
 
     // Guardar en caché
     audioCache.set(cacheKey, audioBase64);
@@ -168,13 +216,13 @@ router.post('/synthesize', requireAuth, async (req: AuthRequest, res: Response) 
       if (firstKey) audioCache.delete(firstKey);
     }
 
-    console.log(`✅ [Edge TTS] Successfully generated and cached audio (cache size: ${audioCache.size})`);
+    console.log(`✅ [${provider.toUpperCase()} TTS] Successfully generated and cached audio (cache size: ${audioCache.size})`);
 
     res.json({
       audio: audioBase64,
       contentType: 'audio/mp3',
       voice: selectedVoice,
-      provider: 'Microsoft Edge TTS Neural',
+      provider: provider === 'google' ? 'Google Cloud TTS' : 'Microsoft Edge TTS Neural',
       cached: false,
     });
   } catch (error: any) {
@@ -216,6 +264,60 @@ router.get('/voices', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('[TTS] ❌ Failed to list voices:', error.message);
     res.status(500).json({ error: 'Failed to list voices' });
+  }
+});
+
+/**
+ * GET /api/tts/google/voices
+ * List available Spanish voices from Google Cloud TTS
+ */
+router.get('/google/voices', async (req: Request, res: Response) => {
+  try {
+    const voices = await listGoogleVoices();
+    
+    // Filtrar y formatear voces
+    const formattedVoices = voices
+      .filter(v => v.languageCodes?.some(code => code.startsWith('es')))
+      .map(v => ({
+        name: v.name,
+        locale: v.languageCodes?.[0] || 'es-ES',
+        gender: String(v.ssmlGender || 'NEUTRAL').toLowerCase(),
+        language: v.languageCodes?.[0]?.split('-')[0] || 'es',
+        region: v.languageCodes?.[0]?.split('-')[1] || 'ES',
+      }));
+
+    res.json({
+      voices: formattedVoices,
+      provider: 'Google Cloud TTS',
+      count: formattedVoices.length,
+    });
+  } catch (error: any) {
+    console.error('[Google TTS] ❌ Failed to list voices:', error.message);
+    res.status(500).json({ 
+      error: 'Failed to list Google voices',
+      details: error.message,
+      suggestion: 'Ensure GOOGLE_APPLICATION_CREDENTIALS is configured'
+    });
+  }
+});
+
+/**
+ * GET /api/tts/config/check
+ * Check if Google Cloud TTS is configured
+ */
+router.get('/config/check', async (req: Request, res: Response) => {
+  try {
+    const isConfigured = await checkGoogleTTSConfig();
+    res.json({ 
+      googleTTS: isConfigured,
+      edgeTTS: true, // Edge TTS siempre disponible
+    });
+  } catch (error: any) {
+    res.json({ 
+      googleTTS: false,
+      edgeTTS: true,
+      error: error.message
+    });
   }
 });
 

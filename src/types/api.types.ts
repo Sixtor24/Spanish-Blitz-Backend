@@ -32,6 +32,8 @@ export interface DbUser {
   role?: 'user' | 'admin' | null;
   preferred_locale?: string | null;
   preferred_voice_gender?: 'male' | 'female' | null;
+  tts_provider?: 'edge' | 'google' | null;
+  tts_voice_id?: string | null;
   is_premium?: boolean | null;
   plan?: 'free' | 'premium' | null;
   has_seen_welcome?: boolean | null;
@@ -152,6 +154,8 @@ export interface UpdateUserBody {
   display_name?: string;
   preferred_locale?: string;
   preferred_voice_gender?: 'male' | 'female';
+  tts_provider?: 'edge' | 'google';
+  tts_voice_id?: string;
 }
 
 export interface UpdateUserAdminBody {

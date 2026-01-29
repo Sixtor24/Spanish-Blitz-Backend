@@ -17,6 +17,7 @@
     "@auth/core": "^0.37.2",
     "@bestcodes/edge-tts": "^3.0.1",
     "@deepgram/sdk": "^4.11.3",
+    "@google-cloud/text-to-speech": "^6.4.0",
     "@neondatabase/serverless": "^0.10.4",
     "argon2": "^0.43.0",
     "body-parser": "^1.20.3",

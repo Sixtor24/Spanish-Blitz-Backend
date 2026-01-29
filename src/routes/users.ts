@@ -18,7 +18,7 @@ router.get('/current', requireAuth, withErrorHandler(async (req: AuthRequest, re
   const user = await getCurrentUser(req.session!);
 
   const rows = await sql`
-    SELECT id, email, display_name, role, preferred_locale, preferred_voice_gender, is_premium, plan, has_seen_welcome, xp_total, created_at, updated_at
+    SELECT id, email, display_name, role, preferred_locale, preferred_voice_gender, tts_provider, tts_voice_id, is_premium, plan, has_seen_welcome, xp_total, created_at, updated_at
     FROM users
     WHERE id = ${user.id}
     LIMIT 1
@@ -37,7 +37,7 @@ router.get('/current', requireAuth, withErrorHandler(async (req: AuthRequest, re
  */
 router.patch('/current', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
   const body = req.body as UpdateUserBody;
-  const { display_name, preferred_locale, preferred_voice_gender } = body;
+  const { display_name, preferred_locale, preferred_voice_gender, tts_provider, tts_voice_id } = body;
   const user = await getCurrentUser(req.session!);
 
   const rows = await sql`
@@ -46,9 +46,11 @@ router.patch('/current', requireAuth, withErrorHandler(async (req: AuthRequest, 
       display_name = COALESCE(${display_name}, display_name),
       preferred_locale = COALESCE(${preferred_locale}, preferred_locale),
       preferred_voice_gender = COALESCE(${preferred_voice_gender}, preferred_voice_gender),
+      tts_provider = COALESCE(${tts_provider}, tts_provider),
+      tts_voice_id = COALESCE(${tts_voice_id}, tts_voice_id),
       updated_at = NOW()
     WHERE id = ${user.id}
-    RETURNING id, email, display_name, role, preferred_locale, preferred_voice_gender, is_premium, plan, has_seen_welcome, xp_total, created_at, updated_at
+    RETURNING id, email, display_name, role, preferred_locale, preferred_voice_gender, tts_provider, tts_voice_id, is_premium, plan, has_seen_welcome, xp_total, created_at, updated_at
   `;
 
   if (rows.length === 0) {
@@ -71,7 +73,7 @@ router.post('/mark-welcome-seen', requireAuth, withErrorHandler(async (req: Auth
       has_seen_welcome = true,
       updated_at = NOW()
     WHERE id = ${user.id}
-    RETURNING id, email, display_name, role, preferred_locale, preferred_voice_gender, is_premium, plan, has_seen_welcome, xp_total
+    RETURNING id, email, display_name, role, preferred_locale, preferred_voice_gender, tts_provider, tts_voice_id, is_premium, plan, has_seen_welcome, xp_total
   `;
 
   if (rows.length === 0) {
