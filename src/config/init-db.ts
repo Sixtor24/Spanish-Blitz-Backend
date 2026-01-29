@@ -29,9 +29,6 @@ export async function initializeDatabase() {
           ALTER TABLE users ADD COLUMN IF NOT EXISTS xp_total INTEGER NOT NULL DEFAULT 0;
         EXCEPTION WHEN others THEN NULL; END;
         BEGIN
-          ALTER TABLE users ADD COLUMN IF NOT EXISTS tts_provider text DEFAULT 'edge';
-        EXCEPTION WHEN others THEN NULL; END;
-        BEGIN
           ALTER TABLE users ADD COLUMN IF NOT EXISTS tts_voice_id text;
         EXCEPTION WHEN others THEN NULL; END;
       END$$;
