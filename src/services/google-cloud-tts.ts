@@ -13,11 +13,24 @@ let ttsClient: TextToSpeechClient | null = null;
 
 function getClient(): TextToSpeechClient {
   if (!ttsClient) {
-    // Las credenciales se pueden configurar de 3 maneras:
-    // 1. Variable de entorno GOOGLE_APPLICATION_CREDENTIALS apuntando al JSON
-    // 2. Pasar credenciales explícitamente (ver documentación)
-    // 3. Usar default credentials si estás en Google Cloud
-    ttsClient = new TextToSpeechClient();
+    // Soportar credenciales inline desde variable de entorno (para Railway/Heroku)
+    const inlineCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS_JSON;
+    
+    if (inlineCredentials) {
+      // Credenciales inline: parsear JSON directamente
+      try {
+        const credentials = JSON.parse(inlineCredentials);
+        console.log('✅ [Google TTS] Using inline credentials from GOOGLE_CLOUD_CREDENTIALS_JSON');
+        ttsClient = new TextToSpeechClient({ credentials });
+      } catch (error) {
+        console.error('❌ [Google TTS] Failed to parse inline credentials:', error);
+        throw new Error('Invalid GOOGLE_CLOUD_CREDENTIALS_JSON format');
+      }
+    } else {
+      // Usar GOOGLE_APPLICATION_CREDENTIALS (path a archivo) o default credentials
+      console.log('✅ [Google TTS] Using GOOGLE_APPLICATION_CREDENTIALS or default credentials');
+      ttsClient = new TextToSpeechClient();
+    }
   }
   return ttsClient;
 }
