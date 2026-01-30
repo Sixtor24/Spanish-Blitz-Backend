@@ -112,22 +112,14 @@ router.get('/', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
 
   query += ` GROUP BY d.id ORDER BY d.created_at DESC`;
 
-  console.log('[DECKS] Query:', query);
-  console.log('[DECKS] Params:', params);
-  console.log('[DECKS] User ID:', userId, 'Type:', typeof userId);
-  console.log('[DECKS] User ID Text:', userIdText, 'Type:', typeof userIdText);
-
   let rows;
   try {
     rows = await sql(query, params);
-    console.log('[DECKS] Rows returned:', rows.length);
   } catch (err: any) {
-    console.error('[DECKS] Query error:', err);
     const message = (err?.message || "").toLowerCase();
     if (message.includes("primary_color_hex") && message.includes("column")) {
       const fallback = query.replace(/,\s*d\.primary_color_hex,/i, ",").replace(/d\.primary_color_hex,?/gi, "");
       rows = await sql(fallback, params);
-      console.log('[DECKS] Fallback rows returned:', rows.length);
     } else {
       throw err;
     }

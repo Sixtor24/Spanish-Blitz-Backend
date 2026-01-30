@@ -23,23 +23,24 @@ const pool = new pg.Pool({
 });
 
 // Create SQL wrapper compatible with existing query syntax
-export const sql = async (query: string | TemplateStringsArray, ...params: any[]) => {
+export const sql = async (query: string | TemplateStringsArray, paramsOrFirst?: any[] | any, ...restParams: any[]) => {
   if (typeof query === 'string') {
-    // Regular query with parameters - pass them directly to pg
+    // Regular query with parameters array
+    // Check if second argument is an array (parameters) or a single value
+    const params = Array.isArray(paramsOrFirst) ? paramsOrFirst : (paramsOrFirst !== undefined ? [paramsOrFirst, ...restParams] : []);
     const result = await pool.query(query, params.length > 0 ? params : undefined);
     return result.rows;
   } else {
     // Tagged template literal - Neon style
     const strings = query as TemplateStringsArray;
+    const params = paramsOrFirst !== undefined ? [paramsOrFirst, ...restParams] : [];
     let fullQuery = strings[0];
-    const queryParams: any[] = [];
     
     for (let i = 0; i < params.length; i++) {
-      queryParams.push(params[i]);
       fullQuery += `$${i + 1}` + strings[i + 1];
     }
     
-    const result = await pool.query(fullQuery, queryParams);
+    const result = await pool.query(fullQuery, params);
     return result.rows;
   }
 };
