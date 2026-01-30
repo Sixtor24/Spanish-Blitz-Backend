@@ -134,11 +134,6 @@ export function setupWebSocket(httpServer: HTTPServer) {
     });
   });
 
-  // Log status every minute
-  setInterval(() => {
-    console.log(`📊 [WebSocket] Active connections: ${wss?.clients.size || 0}, Active speech sessions: ${getActiveSessionsCount()}`);
-  }, 60000);
-
   console.info('✅ [WebSocket] Server attached to HTTP server');
   return { wss, port: null };
 }
