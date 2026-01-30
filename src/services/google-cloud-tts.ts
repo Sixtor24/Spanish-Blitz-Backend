@@ -41,31 +41,30 @@ function getClient(): TextToSpeechClient {
  * Wavenet = Alta calidad
  * Standard = Calidad básica (más económico)
  */
+/**
+ * Google Cloud TTS solo soporta voces Neural2 para:
+ * - es-ES (España)
+ * - es-US (Latino/Estados Unidos - neutral)
+ * 
+ * No existen voces específicas para México, Argentina, Colombia, Chile, etc.
+ */
 export const GOOGLE_VOICE_MAP: Record<string, Record<'male' | 'female', string>> = {
   'es-ES': {
     male: 'es-ES-Neural2-F',    // Neural2 male voice (España)
     female: 'es-ES-Neural2-A',  // Neural2 female voice (España)
   },
-  'es-MX': {
-    male: 'es-US-Neural2-B',    // Neural2 male voice (México/US)
-    female: 'es-US-Neural2-A',  // Neural2 female voice (México/US)
-  },
-  'es-AR': {
-    male: 'es-US-Neural2-B',    // Fallback a US (Google no tiene AR específico)
-    female: 'es-US-Neural2-A',
-  },
-  'es-CO': {
-    male: 'es-US-Neural2-B',    // Fallback a US
-    female: 'es-US-Neural2-A',
-  },
-  'es-CL': {
-    male: 'es-US-Neural2-B',    // Fallback a US
-    female: 'es-US-Neural2-A',
-  },
   'es-US': {
-    male: 'es-US-Neural2-B',
-    female: 'es-US-Neural2-A',
+    male: 'es-US-Neural2-B',    // Neural2 male voice (Latino/US - neutral)
+    female: 'es-US-Neural2-A',  // Neural2 female voice (Latino/US - neutral)
   },
+};
+
+/**
+ * Mapeo de locale a languageCode para Google Cloud TTS
+ */
+export const LOCALE_TO_LANGUAGE_CODE: Record<string, string> = {
+  'es-ES': 'es-ES',  // España
+  'es-US': 'es-US',  // Latino/Estados Unidos (neutral latinoamericano)
 };
 
 /**
@@ -111,10 +110,13 @@ export async function synthesizeGoogleTTS(
 
     console.log(`🎤 [Google TTS] Synthesizing with voice: ${voiceName}, rate: ${speakingRate}`);
 
+    // Obtener el languageCode correcto para el locale
+    const languageCode = LOCALE_TO_LANGUAGE_CODE[locale] || 'es-US';
+    
     const request: ISynthesizeSpeechRequest = {
       input: { text },
       voice: {
-        languageCode: locale.split('-')[0] + '-' + locale.split('-')[1], // e.g., "es-ES"
+        languageCode: languageCode,
         name: voiceName,
       },
       audioConfig: {
