@@ -147,7 +147,7 @@ export async function getCurrentUser(session: AuthSession) {
   const userRows = await sql`
     SELECT id, email, display_name, role, preferred_locale, preferred_voice_gender, tts_voice_id, is_premium, plan, has_seen_welcome
     FROM users
-    WHERE email = ${session.user.email}
+    WHERE id = ${session.user.id}
     LIMIT 1
   `;
 
