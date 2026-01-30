@@ -9,11 +9,10 @@ if (!config.DATABASE_URL) {
 }
 
 // Create pg Pool for Railway PostgreSQL
+// SSL is disabled for internal Railway network (postgres.railway.internal)
 const pool = new pg.Pool({
   connectionString: config.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  ssl: false,
   max: 10,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 15000,
