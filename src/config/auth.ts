@@ -4,12 +4,12 @@
  */
 import { Auth } from "@auth/core";
 import Credentials from "@auth/core/providers/credentials";
-import { Pool } from '@neondatabase/serverless';
+import pg from 'pg';
 import { hash, verify } from 'argon2';
 import type { Adapter as AuthAdapter } from '@auth/core/adapters';
 import { config } from './env.js';
 
-function Adapter(client: Pool): AuthAdapter {
+function Adapter(client: pg.Pool): AuthAdapter {
   return {
     async createVerificationToken(verificationToken) {
       const { identifier, expires, token } = verificationToken;
@@ -195,7 +195,10 @@ function Adapter(client: Pool): AuthAdapter {
   };
 }
 
-const pool = new Pool({ connectionString: config.DATABASE_URL });
+const pool = new pg.Pool({ 
+  connectionString: config.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 const adapter = Adapter(pool);
 
 export const authConfig = {

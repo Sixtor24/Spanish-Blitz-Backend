@@ -1,24 +1,37 @@
 /**
- * Database configuration using Neon serverless
+ * Database configuration using pg for Railway PostgreSQL
  */
-import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
+import pg from 'pg';
 import { config } from './env.js';
 
-const NullishQueryFunction = (() => {
-  const fn: any = () => {
-    throw new Error(
-      'No database connection string was provided to `neon()`. Perhaps process.env.DATABASE_URL has not been set'
-    );
-  };
-  fn.transaction = () => {
-    throw new Error(
-      'No database connection string was provided to `neon()`. Perhaps process.env.DATABASE_URL has not been set'
-    );
-  };
-  return fn;
-})();
+if (!config.DATABASE_URL) {
+  throw new Error('DATABASE_URL environment variable is required');
+}
 
-export const sql: NeonQueryFunction<false, false> = config.DATABASE_URL 
-  ? neon(config.DATABASE_URL) 
-  : NullishQueryFunction;
+// Create pg Pool for Railway PostgreSQL
+const pool = new pg.Pool({
+  connectionString: config.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+  max: 10,
+  idleTimeoutMillis: 20000,
+  connectionTimeoutMillis: 10000,
+});
+
+// Create SQL wrapper compatible with existing query syntax
+export const sql = async (query: string | TemplateStringsArray, ...params: any[]) => {
+  if (typeof query === 'string') {
+    // Regular query with parameters
+    const result = await pool.query(query, params);
+    return result.rows;
+  } else {
+    // Tagged template literal
+    const strings = query as TemplateStringsArray;
+    let fullQuery = strings[0];
+    for (let i = 0; i < params.length; i++) {
+      fullQuery += `$${i + 1}` + strings[i + 1];
+    }
+    const result = await pool.query(fullQuery, params);
+    return result.rows;
+  }
+};
 
