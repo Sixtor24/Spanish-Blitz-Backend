@@ -11,10 +11,14 @@ if (!config.DATABASE_URL) {
 // Create pg Pool for Railway PostgreSQL
 const pool = new pg.Pool({
   connectionString: config.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: {
+    rejectUnauthorized: false,
+  },
   max: 10,
-  idleTimeoutMillis: 20000,
-  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 15000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 });
 
 // Create SQL wrapper compatible with existing query syntax
