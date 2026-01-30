@@ -49,7 +49,7 @@ router.post('/signin', async (req: Request, res: Response) => {
     res.cookie('authjs.session-token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain in production
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
@@ -112,7 +112,7 @@ router.post('/signup', async (req: Request, res: Response) => {
     res.cookie('authjs.session-token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain in production
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
@@ -136,8 +136,8 @@ router.post('/signout', async (req: Request, res: Response) => {
   const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax' as const, // Using same-origin proxy
-  };
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain
+  } as const;
   
   res.clearCookie('authjs.session-token', cookieOptions);
   res.clearCookie('__Secure-authjs.session-token', cookieOptions);
