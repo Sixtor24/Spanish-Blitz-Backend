@@ -27,7 +27,7 @@ function cleanupOldSessions() {
   const now = Date.now();
   for (const [sessionId, session] of activeStreams.entries()) {
     if (now - session.startTime > SESSION_TIMEOUT) {
-      console.log(`🧹 [Speech Stream] Cleaning up old session: ${sessionId}`);
+      // Cleaning up old session
       try {
         if (session.connection) {
           session.connection.finish();
@@ -77,7 +77,7 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
       stopSpeechStream(sessionId);
     }
 
-    console.log(`🎤 [Speech Stream] Starting session: ${sessionId} (locale: ${locale})`);
+    // Starting speech session
 
     // Create Deepgram client
     const deepgram = createClient(deepgramApiKey);
@@ -118,7 +118,7 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
 
     // Handle connection open
     connection.on('open', () => {
-      console.log(`✅ [Speech Stream] Deepgram connection OPENED: ${sessionId}`);
+      // Deepgram connection opened
       if (ws.readyState === 1) { // WebSocket.OPEN
         ws.send(JSON.stringify({
           type: 'stream:started',
@@ -147,7 +147,7 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
         if (transcript && transcript.trim()) {
           // Only log final transcripts to reduce noise
           if (isFinal) {
-            console.log(`✅ [Speech Stream] Final transcript (${sessionId}): "${transcript}" (confidence: ${(confidence * 100).toFixed(1)}%)`);
+            // Final transcript received
           }
           ws.send(JSON.stringify({
             type: 'transcript',
@@ -176,7 +176,7 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
 
     // Handle Deepgram connection close
     connection.on('close', () => {
-      console.log(`🔌 [Speech Stream] Deepgram connection closed: ${sessionId}`);
+      // Deepgram connection closed
       activeStreams.delete(sessionId);
       // DO NOT send stream:closed to client - client WebSocket stays open
       // DO NOT close client WebSocket - it's persistent and reused
@@ -231,11 +231,11 @@ export function sendAudioChunk(sessionId: string, audioBuffer: Buffer): boolean 
 export function stopSpeechStream(sessionId: string): void {
   const session = activeStreams.get(sessionId);
   if (!session) {
-    console.log(`⚠️ [Speech Stream] Session ${sessionId} already stopped or not found`);
+    // Session already stopped
     return;
   }
 
-  console.log(`🛑 [Speech Stream] Stopping Deepgram session: ${sessionId}`);
+  // Stopping Deepgram session
 
   try {
     // Clear keepalive timer
@@ -264,7 +264,7 @@ export function stopSpeechStream(sessionId: string): void {
 
   // Remove from active sessions
   activeStreams.delete(sessionId);
-  console.log(`✅ [Speech Stream] Session ${sessionId} stopped, client WebSocket remains open`);
+  // Session stopped
 }
 
 /**

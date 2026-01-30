@@ -65,7 +65,7 @@ export function setupWebSocket(httpServer: HTTPServer) {
   wss = new WebSocketServer({ server: httpServer });
 
   wss.on('connection', (ws) => {
-    console.log('🔌 [WebSocket] New connection');
+    // Connection established (log reduced)
     
     ws.on('message', (data) => {
       try {
@@ -78,14 +78,14 @@ export function setupWebSocket(httpServer: HTTPServer) {
             type: 'session:subscribed', 
             sessionId: msg.sessionId 
           }));
-          console.log(`📺 [WebSocket] Client subscribed to session: ${msg.sessionId}`);
+          // Client subscribed to session
         }
         
         // Speech streaming - start
         else if (msg?.type === 'speech:start') {
           const sessionId = msg.sessionId || `speech-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           const locale = msg.locale || 'es-ES';
-          console.log(`🎤 [WebSocket] Starting speech stream: ${sessionId}`);
+          // Starting speech stream
           startSpeechStream(ws, sessionId, locale);
         }
         
@@ -113,7 +113,7 @@ export function setupWebSocket(httpServer: HTTPServer) {
         else if (msg?.type === 'speech:stop') {
           const { sessionId } = msg;
           if (sessionId) {
-            console.log(`🛑 [WebSocket] Stopping speech stream: ${sessionId}`);
+            // Stopping speech stream
             stopSpeechStream(sessionId);
           }
         }
@@ -124,7 +124,7 @@ export function setupWebSocket(httpServer: HTTPServer) {
     });
 
     ws.on('close', () => {
-      console.log('🔌 [WebSocket] Connection closed');
+      // Connection closed (log reduced)
       removeClient(ws);
     });
     
