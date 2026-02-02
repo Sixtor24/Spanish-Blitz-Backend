@@ -45,13 +45,23 @@ router.post('/signin', async (req: Request, res: Response) => {
       { expiresIn: '7d' }
     );
 
-    // Set cookie
-    res.cookie('authjs.session-token', token, {
+    // Set cookie - Partitioned for Chrome incognito mobile compatibility
+    const isProduction = process.env.NODE_ENV === 'production';
+    const cookieOptions: any = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain in production
+      secure: true, // Required for sameSite:'none' and Partitioned
+      sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-domain
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+      path: '/', // Explicit path for all routes
+      // NO domain attribute - browser handles cross-domain with credentials:'include'
+    };
+    
+    // Add Partitioned for Chrome incognito (CHIPS - Cookies Having Independent Partitioned State)
+    if (isProduction) {
+      cookieOptions.partitioned = true;
+    }
+    
+    res.cookie('authjs.session-token', token, cookieOptions);
 
     res.json({
       user: {
@@ -108,13 +118,23 @@ router.post('/signup', async (req: Request, res: Response) => {
       { expiresIn: '7d' }
     );
 
-    // Set cookie
-    res.cookie('authjs.session-token', token, {
+    // Set cookie - Partitioned for Chrome incognito mobile compatibility
+    const isProduction = process.env.NODE_ENV === 'production';
+    const cookieOptions: any = {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain in production
+      secure: true, // Required for sameSite:'none' and Partitioned
+      sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-domain
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+      path: '/', // Explicit path for all routes
+      // NO domain attribute - browser handles cross-domain with credentials:'include'
+    };
+    
+    // Add Partitioned for Chrome incognito (CHIPS - Cookies Having Independent Partitioned State)
+    if (isProduction) {
+      cookieOptions.partitioned = true;
+    }
+    
+    res.cookie('authjs.session-token', token, cookieOptions);
 
     res.json({
       user: {
@@ -133,11 +153,19 @@ router.post('/signup', async (req: Request, res: Response) => {
 // Sign Out
 router.post('/signout', async (req: Request, res: Response) => {
   // Clear cookie with same options as when it was set
-  const cookieOptions = {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const cookieOptions: any = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-domain
-  } as const;
+    secure: true,
+    sameSite: isProduction ? 'none' : 'lax',
+    path: '/',
+    // NO domain attribute - must match cookie creation options
+  };
+  
+  // Add Partitioned to match cookie creation (for Chrome incognito)
+  if (isProduction) {
+    cookieOptions.partitioned = true;
+  }
   
   res.clearCookie('authjs.session-token', cookieOptions);
   res.clearCookie('__Secure-authjs.session-token', cookieOptions);
