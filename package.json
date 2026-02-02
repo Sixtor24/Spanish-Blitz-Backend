@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@auth/core": "^0.37.2",
-    "@deepgram/sdk": "3.3.4",
+    "@deepgram/sdk": "3.13.0",
     "@google-cloud/text-to-speech": "^6.4.0",
     "argon2": "^0.43.0",
     "body-parser": "^1.20.3",
