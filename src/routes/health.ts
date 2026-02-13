@@ -4,6 +4,7 @@
 import { Router } from 'express';
 import { config } from '../config/env.js';
 import { sendEmail } from '../services/email.js';
+import { requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -26,11 +27,14 @@ router.get('/', async (req, res) => {
   });
 });
 
-// Email diagnostic endpoint (admin only in production)
-router.post('/email-test', async (req, res) => {
+// Email diagnostic endpoint (admin only)
+router.post('/email-test', requireAdmin, async (req, res) => {
   try {
     const { to } = req.body;
-    const testEmail = to || 'alucard240704@gmail.com';
+    if (!to) {
+      return res.status(400).json({ error: 'Recipient email (to) is required' });
+    }
+    const testEmail = to;
 
     console.log('[health] 📧 Email test requested:', {
       to: testEmail,

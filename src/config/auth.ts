@@ -4,10 +4,11 @@
  */
 import { Auth } from "@auth/core";
 import Credentials from "@auth/core/providers/credentials";
-import pg from 'pg';
 import { hash, verify } from 'argon2';
 import type { Adapter as AuthAdapter } from '@auth/core/adapters';
+import pg from 'pg';
 import { config } from './env.js';
+import { pool as sharedPool } from './database.js';
 
 function Adapter(client: pg.Pool): AuthAdapter {
   return {
@@ -195,11 +196,7 @@ function Adapter(client: pg.Pool): AuthAdapter {
   };
 }
 
-const pool = new pg.Pool({ 
-  connectionString: config.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
-});
-const adapter = Adapter(pool);
+const adapter = Adapter(sharedPool);
 
 export const authConfig = {
   providers: [

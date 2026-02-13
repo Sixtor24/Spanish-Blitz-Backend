@@ -16,8 +16,6 @@ const router: ExpressRouter = Router();
  */
 async function updateAssignmentXpProgress(userId: string, xpEarned: number) {
   try {
-    console.log(`🎯 [XP Progress] Checking assignments for user ${userId}, XP earned: ${xpEarned}`);
-    
     // Get all active assignments with xp_goal for this user
     // Include BOTH: specific assignments (in assignment_students) AND "All students" assignments
     const assignments = await sql`
@@ -46,36 +44,11 @@ async function updateAssignmentXpProgress(userId: string, xpEarned: number) {
         )
     `;
 
-    console.log(`📊 [XP Progress] Found ${assignments.length} active XP goal assignments for user`);
-    
-    if (assignments.length === 0) {
-      console.log(`⚠️ [XP Progress] No active XP goal assignments found. Checking why...`);
-      
-      // Debug: Check if user is in any classroom
-      const classrooms = await sql`
-        SELECT classroom_id, is_active FROM classroom_memberships WHERE student_id = ${userId}
-      `;
-      console.log(`📚 [XP Progress] User is in ${classrooms.length} classrooms:`, classrooms);
-      
-      // Debug: Check all assignments with xp_goal
-      const allXpAssignments = await sql`
-        SELECT id, title, classroom_id, xp_goal FROM assignments WHERE xp_goal IS NOT NULL AND xp_goal > 0
-      `;
-      console.log(`📝 [XP Progress] All XP goal assignments in system:`, allXpAssignments);
-    }
+    if (assignments.length === 0) return;
 
     for (const assignment of assignments) {
-      console.log(`\n🔄 [XP Progress] Processing assignment "${assignment.title}" (${assignment.assignment_type})`);
-      console.log(`   - Assignment ID: ${assignment.assignment_id}`);
-      console.log(`   - XP Goal: ${assignment.xp_goal}`);
-      console.log(`   - Current Progress: ${assignment.xp_earned_since_assignment || 0}`);
-      console.log(`   - XP to add: ${xpEarned}`);
-      
       const newXpProgress = (assignment.xp_earned_since_assignment || 0) + xpEarned;
       const isNowCompleted = newXpProgress >= assignment.xp_goal;
-
-      console.log(`   - New XP Progress: ${newXpProgress}/${assignment.xp_goal}`);
-      console.log(`   - Completed: ${isNowCompleted ? 'YES' : 'NO'}`);
 
       // Update or insert submission
       const completedTimestamp = isNowCompleted ? new Date() : null;
@@ -104,8 +77,6 @@ async function updateAssignmentXpProgress(userId: string, xpEarned: number) {
         RETURNING xp_earned_since_assignment, completed_at
       `;
 
-      console.log(`   ✅ Updated submission:`, result[0]);
-
       // Award xp_reward if just completed
       if (isNowCompleted && !assignment.completed_at && assignment.xp_reward && assignment.xp_reward > 0) {
         // Insert XP event for assignment reward
@@ -122,11 +93,8 @@ async function updateAssignmentXpProgress(userId: string, xpEarned: number) {
           WHERE id = ${userId}
         `;
 
-        console.log(`🎉 Assignment XP Goal completed! Awarded ${assignment.xp_reward} XP bonus to user ${userId}`);
       }
     }
-    
-    console.log(`✅ [XP Progress] Finished processing all assignments\n`);
   } catch (error) {
     console.error('❌ [XP Progress] Error updating assignment XP progress:', error);
     // Don't throw - this is a background operation

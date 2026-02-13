@@ -23,6 +23,53 @@ export interface AuthRequest extends Request {
 }
 
 /**
+ * Extract and verify JWT token from request cookies.
+ * Returns the decoded payload and the matching database user row.
+ */
+async function verifyTokenAndGetUser(req: AuthRequest) {
+  const token = req.cookies?.['authjs.session-token'] || 
+                req.cookies?.['__Secure-authjs.session-token'];
+
+  if (!token) {
+    throw new ApiError(401, 'Not authenticated');
+  }
+
+  let decoded: any;
+  try {
+    decoded = jwt.verify(token, config.AUTH_SECRET);
+  } catch {
+    throw new ApiError(401, 'Invalid token');
+  }
+
+  const userRows = await sql`
+    SELECT id, email, display_name, role
+    FROM users
+    WHERE id = ${decoded.userId}
+    LIMIT 1
+  `;
+
+  if (userRows.length === 0) {
+    throw new ApiError(401, 'User not found');
+  }
+
+  return { decoded, user: userRows[0] };
+}
+
+/**
+ * Build an AuthSession object from a decoded JWT and a user row.
+ */
+function buildSession(decoded: any, user: any): AuthSession {
+  return {
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.display_name,
+    },
+    expires: new Date(decoded.exp * 1000).toISOString(),
+  };
+}
+
+/**
  * Middleware to require authentication
  */
 export const requireAuth = async (
@@ -31,44 +78,8 @@ export const requireAuth = async (
   next: NextFunction
 ) => {
   try {
-    // Get session token from cookie
-    const token = req.cookies?.['authjs.session-token'] || 
-                  req.cookies?.['__Secure-authjs.session-token'];
-
-    if (!token) {
-      throw new ApiError(401, 'Not authenticated');
-    }
-
-    // Verify JWT token
-    let decoded: any;
-    try {
-      decoded = jwt.verify(token, config.AUTH_SECRET);
-    } catch (err) {
-      throw new ApiError(401, 'Invalid token');
-    }
-
-    // Get user from database
-    const userRows = await sql`
-      SELECT id, email, display_name, role
-      FROM users
-      WHERE id = ${decoded.userId}
-      LIMIT 1
-    `;
-
-    if (userRows.length === 0) {
-      throw new ApiError(401, 'User not found');
-    }
-
-    const user = userRows[0];
-    req.session = {
-      user: {
-        id: user.id, // Include userId to avoid redundant queries
-        email: user.email,
-        name: user.display_name,
-      },
-      expires: new Date(decoded.exp * 1000).toISOString(),
-    };
-    
+    const { decoded, user } = await verifyTokenAndGetUser(req);
+    req.session = buildSession(decoded, user);
     next();
   } catch (error) {
     if (error instanceof ApiError) {
@@ -87,49 +98,13 @@ export const requireAdmin = async (
   next: NextFunction
 ) => {
   try {
-    // First check authentication
-    const token = req.cookies?.['authjs.session-token'] || 
-                  req.cookies?.['__Secure-authjs.session-token'];
-
-    if (!token) {
-      throw new ApiError(401, 'Not authenticated');
-    }
-
-    // Verify JWT token
-    let decoded: any;
-    try {
-      decoded = jwt.verify(token, config.AUTH_SECRET);
-    } catch (err) {
-      throw new ApiError(401, 'Invalid token');
-    }
-
-    // Get user from database and check admin role
-    const userRows = await sql`
-      SELECT id, email, display_name, role
-      FROM users
-      WHERE id = ${decoded.userId}
-      LIMIT 1
-    `;
-
-    if (userRows.length === 0) {
-      throw new ApiError(401, 'User not found');
-    }
-
-    const user = userRows[0];
+    const { decoded, user } = await verifyTokenAndGetUser(req);
 
     if (user.role !== 'admin') {
       throw new ApiError(403, 'Access denied');
     }
 
-    req.session = {
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.display_name,
-      },
-      expires: new Date(decoded.exp * 1000).toISOString(),
-    };
-
+    req.session = buildSession(decoded, user);
     req.user = user;
     next();
   } catch (error) {
@@ -170,33 +145,27 @@ export async function getCurrentUser(session: AuthSession) {
  * Utility to get current user or return 401
  */
 export async function getCurrentUserOr401(req: any) {
-  const token = req.cookies?.['authjs.session-token'] || 
-                req.cookies?.['__Secure-authjs.session-token'];
-  
-  if (!token) {
-    return { error: { status: 401, body: { error: "Not authenticated" } } };
-  }
-
-  // Verify JWT token
-  let decoded: any;
   try {
-    decoded = jwt.verify(token, config.AUTH_SECRET);
-  } catch (err) {
-    return { error: { status: 401, body: { error: "Invalid token" } } };
+    const { user } = await verifyTokenAndGetUser(req);
+
+    // Fetch extended fields needed by play-sessions and other consumers
+    const rows = await sql`
+      SELECT id, email, plan, role, is_premium, display_name
+      FROM users
+      WHERE id = ${user.id}
+      LIMIT 1
+    `;
+
+    if (rows.length === 0) {
+      return { error: { status: 404, body: { error: "User not found" } } };
+    }
+
+    return { user: rows[0] };
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return { error: { status: error.statusCode, body: { error: error.message } } };
+    }
+    return { error: { status: 401, body: { error: "Authentication failed" } } };
   }
-
-  // Get user from database
-  const rows = await sql`
-    SELECT id, email, plan, role, is_premium, display_name
-    FROM users
-    WHERE id = ${decoded.userId}
-    LIMIT 1
-  `;
-
-  if (rows.length === 0) {
-    return { error: { status: 404, body: { error: "User not found" } } };
-  }
-
-  return { user: rows[0] };
 }
 

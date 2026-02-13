@@ -91,6 +91,19 @@ router.patch('/:id', requireAuth, withErrorHandler(async (req: AuthRequest, res)
  */
 router.delete('/:id', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
   const { id } = req.params;
+  const userId = req.session!.user.id;
+
+  // Verify ownership: card must belong to a deck owned by the current user
+  const ownership = await sql`
+    SELECT c.id FROM cards c
+    JOIN decks d ON d.id = c.deck_id
+    WHERE c.id = ${id} AND d.owner_user_id = ${String(userId)}
+    LIMIT 1
+  `;
+
+  if (ownership.length === 0) {
+    throw new ApiError(403, 'Only the deck owner can delete this card');
+  }
 
   await sql`DELETE FROM cards WHERE id = ${id}`;
 

@@ -174,6 +174,16 @@ export async function initializeDatabase() {
       END$$;
     `;
 
+    // Add require_mic column to play_sessions for voice requirement in Blitz Challenges
+    await sql`
+      DO $$
+      BEGIN
+        BEGIN
+          ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS require_mic BOOLEAN DEFAULT false;
+        EXCEPTION WHEN others THEN NULL; END;
+      END$$;
+    `;
+
     // Add xp_reward column to assignments
     await sql`
       DO $$

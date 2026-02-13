@@ -219,31 +219,6 @@ router.patch('/:id', requireAuth, withErrorHandler(async (req: AuthRequest, res)
 }, 'PATCH /api/classrooms/:id'));
 
 /**
- * DELETE /api/classrooms/:id
- * Delete a classroom (teacher only)
- */
-router.delete('/:id', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
-  const user = await getCurrentUser(req.session!);
-  const userId = String(user.id);
-  const { id } = req.params;
-
-  // Verify teacher ownership
-  const existing = await sql`
-    SELECT id FROM classrooms 
-    WHERE id = ${id} AND teacher_id = ${userId}
-    LIMIT 1
-  `;
-
-  if (existing.length === 0) {
-    throw new ApiError(403, 'Only the teacher can delete this classroom');
-  }
-
-  await sql`DELETE FROM classrooms WHERE id = ${id}`;
-
-  return res.json({ success: true });
-}, 'DELETE /api/classrooms/:id'));
-
-/**
  * POST /api/classrooms/join
  * Join a classroom using a code (student)
  */

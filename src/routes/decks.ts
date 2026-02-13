@@ -275,7 +275,20 @@ router.patch('/:id', requireAuth, withErrorHandler(async (req: AuthRequest, res)
  * Delete deck
  */
 router.delete('/:id', requireAuth, withErrorHandler(async (req: AuthRequest, res) => {
+  const user = await getCurrentUser(req.session!);
+  const userId = String(user.id);
   const { id } = req.params;
+
+  // Verify ownership before deleting
+  const existing = await sql`
+    SELECT id FROM decks
+    WHERE id = ${id} AND owner_user_id = ${userId}
+    LIMIT 1
+  `;
+
+  if (existing.length === 0) {
+    throw new ApiError(403, 'Only the deck owner can delete this set');
+  }
 
   await sql`DELETE FROM decks WHERE id = ${id}`;
 
@@ -441,16 +454,18 @@ router.post('/:deckId/cards/bulk', requireAuth, withErrorHandler(async (req: Aut
     return { question, answer, notes: finalNotes };
   });
 
-  // Insert cards one by one to ensure notes are properly saved
-  const result = [];
-  for (const card of processedCards) {
-    const inserted = await sql`
-      INSERT INTO cards (deck_id, question, answer, notes)
-      VALUES (${deckId}, ${card.question}, ${card.answer}, ${card.notes})
-      RETURNING *
-    `;
-    result.push(inserted[0]);
-  }
+  // Batch insert all cards in a single query for performance
+  const placeholders = processedCards.map((_, i) => {
+    const offset = i * 4;
+    return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4})`;
+  }).join(', ');
+
+  const params = processedCards.flatMap(card => [deckId, card.question, card.answer, card.notes]);
+
+  const result = await sql(
+    `INSERT INTO cards (deck_id, question, answer, notes) VALUES ${placeholders} RETURNING *`,
+    params
+  );
 
   return res.json({ cards: result, count: result.length });
 }, 'POST /api/decks/:deckId/cards/bulk'));

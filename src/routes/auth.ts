@@ -8,6 +8,28 @@ import { sendEmail, resetPasswordTemplate } from '../services/email.js';
 
 const router = Router();
 
+const SESSION_COOKIE_NAME = 'authjs.session-token';
+const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/**
+ * Build cookie options for session cookies.
+ * Centralised to avoid duplication across signin/signup/signout.
+ */
+function buildCookieOptions(): Record<string, any> {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const opts: Record<string, any> = {
+    httpOnly: true,
+    secure: true,
+    sameSite: isProduction ? 'none' : 'lax',
+    maxAge: SESSION_MAX_AGE_MS,
+    path: '/',
+  };
+  if (isProduction) {
+    opts.partitioned = true;
+  }
+  return opts;
+}
+
 // Sign In
 router.post('/signin', async (req: Request, res: Response) => {
   try {
@@ -45,23 +67,7 @@ router.post('/signin', async (req: Request, res: Response) => {
       { expiresIn: '7d' }
     );
 
-    // Set cookie - Partitioned for Chrome incognito mobile compatibility
-    const isProduction = process.env.NODE_ENV === 'production';
-    const cookieOptions: any = {
-      httpOnly: true,
-      secure: true, // Required for sameSite:'none' and Partitioned
-      sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-domain
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/', // Explicit path for all routes
-      // NO domain attribute - browser handles cross-domain with credentials:'include'
-    };
-    
-    // Add Partitioned for Chrome incognito (CHIPS - Cookies Having Independent Partitioned State)
-    if (isProduction) {
-      cookieOptions.partitioned = true;
-    }
-    
-    res.cookie('authjs.session-token', token, cookieOptions);
+    res.cookie(SESSION_COOKIE_NAME, token, buildCookieOptions());
 
     res.json({
       user: {
@@ -118,23 +124,7 @@ router.post('/signup', async (req: Request, res: Response) => {
       { expiresIn: '7d' }
     );
 
-    // Set cookie - Partitioned for Chrome incognito mobile compatibility
-    const isProduction = process.env.NODE_ENV === 'production';
-    const cookieOptions: any = {
-      httpOnly: true,
-      secure: true, // Required for sameSite:'none' and Partitioned
-      sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-domain
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/', // Explicit path for all routes
-      // NO domain attribute - browser handles cross-domain with credentials:'include'
-    };
-    
-    // Add Partitioned for Chrome incognito (CHIPS - Cookies Having Independent Partitioned State)
-    if (isProduction) {
-      cookieOptions.partitioned = true;
-    }
-    
-    res.cookie('authjs.session-token', token, cookieOptions);
+    res.cookie(SESSION_COOKIE_NAME, token, buildCookieOptions());
 
     res.json({
       user: {
@@ -152,23 +142,9 @@ router.post('/signup', async (req: Request, res: Response) => {
 
 // Sign Out
 router.post('/signout', async (req: Request, res: Response) => {
-  // Clear cookie with same options as when it was set
-  const isProduction = process.env.NODE_ENV === 'production';
-  const cookieOptions: any = {
-    httpOnly: true,
-    secure: true,
-    sameSite: isProduction ? 'none' : 'lax',
-    path: '/',
-    // NO domain attribute - must match cookie creation options
-  };
-  
-  // Add Partitioned to match cookie creation (for Chrome incognito)
-  if (isProduction) {
-    cookieOptions.partitioned = true;
-  }
-  
-  res.clearCookie('authjs.session-token', cookieOptions);
-  res.clearCookie('__Secure-authjs.session-token', cookieOptions);
+  const opts = buildCookieOptions();
+  res.clearCookie(SESSION_COOKIE_NAME, opts);
+  res.clearCookie('__Secure-authjs.session-token', opts);
   res.json({ message: 'Signed out successfully' });
 });
 
@@ -176,13 +152,6 @@ router.post('/signout', async (req: Request, res: Response) => {
 router.post('/forgot-password', async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
-
-    console.log(`[auth] 📧 Forgot password request for: ${email}`);
-    console.log(`[auth] 🔧 Email config check:`, {
-      hasResendKey: !!config.RESEND_API_KEY,
-      fromEmail: config.RESEND_FROM_EMAIL,
-      frontendUrl: config.FRONTEND_URL
-    });
 
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
@@ -195,13 +164,11 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
     `;
 
     const userExists = userRows.length > 0;
-    console.log(`[auth] 👤 User exists: ${userExists} for email: ${email}`);
 
     // Always return success to prevent email enumeration
     res.json({ message: 'If the email exists, a password reset link has been sent' });
 
     if (!userExists) {
-      console.log(`[auth] ⚠️ User not found, skipping email send for: ${email}`);
       return;
     }
 
@@ -225,31 +192,17 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
 
     // Send reset email
     const resetLink = `${config.FRONTEND_URL}/account/reset-password?token=${resetToken}&email=${encodeURIComponent(email)}`;
-    console.log(`[auth] 🔗 Generated reset link for: ${email}`);
-    
     try {
-      console.log(`[auth] 📤 Attempting to send email to: ${email} from: ${config.RESEND_FROM_EMAIL}`);
       await sendEmail({
         to: email,
         subject: 'Restablece tu contraseña - Spanish Blitz',
         html: resetPasswordTemplate({ resetLink })
       });
-      console.log(`[auth] ✅ Password reset email sent successfully to: ${email}`);
     } catch (emailError: any) {
-      console.error(`[auth] ❌ Failed to send password reset email to: ${email}`, {
-        error: emailError?.message || String(emailError),
-        stack: emailError?.stack,
-        from: config.RESEND_FROM_EMAIL,
-        to: email
-      });
-      // Don't throw - we already returned success to prevent email enumeration
-      // But log the error for debugging
+      console.error('[auth] Failed to send password reset email:', emailError?.message);
     }
   } catch (error: any) {
-    console.error('[auth] ❌ Forgot password error:', {
-      error: error?.message || String(error),
-      stack: error?.stack
-    });
+    console.error('[auth] Forgot password error:', error?.message);
     // Don't change response if already sent
     if (!res.headersSent) {
       res.status(500).json({ error: 'Internal server error' });

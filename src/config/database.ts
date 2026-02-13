@@ -10,7 +10,7 @@ if (!config.DATABASE_URL) {
 
 // Create pg Pool for Railway PostgreSQL
 // SSL required for public Railway proxy connection
-const pool = new pg.Pool({
+export const pool = new pg.Pool({
   connectionString: config.DATABASE_URL,
   ssl: {
     rejectUnauthorized: false,

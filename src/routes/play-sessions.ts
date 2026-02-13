@@ -18,7 +18,7 @@ const genCode = () => nanoid(CODE_LENGTH).toUpperCase();
  */
 async function buildState(sessionId: string | number, currentUserId: string) {
   // Execute queries sequentially to avoid connection pool saturation
-  const sessionRows = await sql`SELECT ps.id, ps.code, ps.is_teacher, ps.host_user_id, ps.question_count, ps.time_limit_seconds, ps.status, ps.started_at, ps.ends_at, d.title as deck_title
+  const sessionRows = await sql`SELECT ps.id, ps.code, ps.is_teacher, ps.host_user_id, ps.question_count, ps.time_limit_seconds, ps.status, ps.started_at, ps.ends_at, ps.require_mic, d.title as deck_title
       FROM play_sessions ps
       JOIN decks d ON d.id = ps.deck_id
       WHERE ps.id = ${sessionId}
@@ -82,6 +82,8 @@ router.post('/', withErrorHandler(async (req, res) => {
   const timeLimitMinutes = Number.isFinite(rawTimeLimitMinutes) ? Math.max(0, Math.min(rawTimeLimitMinutes, 60)) : 0;
   const questionCount = Math.max(1, Math.min(Number(body.questionCount ?? body.question_count ?? 10), 50));
   const isTeacher = Boolean(body.isTeacher ?? body.is_teacher);
+  const requireMic = Boolean(body.requireMic ?? body.require_mic ?? false);
+  console.log('[CREATE SESSION] requireMic from body:', body.requireMic, '→ resolved:', requireMic);
 
   if (!deckId) {
     throw new ApiError(400, "deckId is required");
@@ -124,7 +126,8 @@ router.post('/', withErrorHandler(async (req, res) => {
       status,
       started_at,
       ends_at,
-      code
+      code,
+      require_mic
     ) VALUES (
       ${user.id},
       ${deckId},
@@ -135,12 +138,19 @@ router.post('/', withErrorHandler(async (req, res) => {
       'pending',
       NULL,
       NULL,
-      ${code}
+      ${code},
+      ${requireMic}
     )
     RETURNING id, code, is_teacher, question_count, time_limit_seconds, ends_at
   `;
 
   const session = sessionRows[0];
+
+  // Explicit UPDATE to ensure require_mic is saved correctly
+  // (tagged template INSERT may not pass boolean correctly to pg)
+  if (requireMic) {
+    await sql`UPDATE play_sessions SET require_mic = true WHERE id = ${session.id}`;
+  }
 
   await sql`
     INSERT INTO play_session_players (session_id, user_id, is_host, state, score)
