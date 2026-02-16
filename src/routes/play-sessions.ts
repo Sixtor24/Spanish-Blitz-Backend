@@ -83,7 +83,6 @@ router.post('/', withErrorHandler(async (req, res) => {
   const questionCount = Math.max(1, Math.min(Number(body.questionCount ?? body.question_count ?? 10), 50));
   const isTeacher = Boolean(body.isTeacher ?? body.is_teacher);
   const requireMic = Boolean(body.requireMic ?? body.require_mic ?? false);
-  console.log('[CREATE SESSION] requireMic from body:', body.requireMic, '→ resolved:', requireMic);
 
   if (!deckId) {
     throw new ApiError(400, "deckId is required");
