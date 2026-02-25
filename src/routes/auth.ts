@@ -86,7 +86,7 @@ router.post('/signin', async (req: Request, res: Response) => {
 // Sign Up
 router.post('/signup', async (req: Request, res: Response) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, firstName, lastName } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password are required' });
@@ -108,11 +108,16 @@ router.post('/signup', async (req: Request, res: Response) => {
     // Normalize email (lowercase and trim)
     const normalizedEmail = emailLower;
 
+    // Build display_name from first/last name or fallback
+    const fName = (firstName || '').trim();
+    const lName = (lastName || '').trim();
+    const displayName = fName && lName ? `${fName} ${lName}` : fName || name || normalizedEmail;
+
     // Create user
     const newUserRows = await sql`
-      INSERT INTO users (email, password_hash, display_name, role)
-      VALUES (${normalizedEmail}, ${password_hash}, ${name || normalizedEmail}, 'user')
-      RETURNING id, email, display_name, role
+      INSERT INTO users (email, password_hash, display_name, first_name, last_name, role)
+      VALUES (${normalizedEmail}, ${password_hash}, ${displayName}, ${fName || null}, ${lName || null}, 'user')
+      RETURNING id, email, display_name, first_name, last_name, role
     `;
 
     const user = newUserRows[0];
@@ -132,6 +137,8 @@ router.post('/signup', async (req: Request, res: Response) => {
         email: user.email,
         role: user.role,
         display_name: user.display_name,
+        first_name: user.first_name,
+        last_name: user.last_name,
       },
     });
   } catch (error) {
