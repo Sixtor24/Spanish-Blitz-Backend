@@ -1,46 +1,47 @@
 /**
  * Deepgram Streaming Service for Real-time Speech Recognition
- * Handles WebSocket connections and Deepgram live transcription
- * Works on all platforms (web and mobile)
+ * Optimized for a language learning platform where students speak at
+ * different speeds. Supports slow syllable-by-syllable pronunciation
+ * and fast fluent speech equally well.
  */
 import { createClient, type LiveClient } from '@deepgram/sdk';
 import type { WebSocket } from 'ws';
 
 interface StreamingSession {
-  connection: any; // Deepgram live connection
+  connection: any;
+  clientWs: WebSocket;
   locale: string;
   isActive: boolean;
   startTime: number;
+  lastActivity: number;
+  keepaliveTimer: ReturnType<typeof setInterval>;
 }
 
 const activeStreams = new Map<string, StreamingSession>();
 
-// Constants
-const SESSION_TIMEOUT = 15000; // 15 seconds timeout for inactive sessions (reduced)
-const MAX_SESSIONS = 200; // Maximum concurrent sessions (increased for Blitz Challenge)
-const KEEPALIVE_INTERVAL = 5000; // Send keepalive every 5s
+const SESSION_TIMEOUT = 20000;         // 20s — slow speakers + processing time
+const MAX_SESSIONS = 200;              // Concurrent sessions for Blitz Challenge
+const KEEPALIVE_INTERVAL = 5000;       // 5s keepalive ping
+const FINALIZE_GRACE_PERIOD = 3000;    // 3s grace after stop to receive final transcript
 
 /**
- * Clean up old sessions
+ * Clean up stale sessions based on last activity, not just start time
  */
 function cleanupOldSessions() {
   const now = Date.now();
   for (const [sessionId, session] of activeStreams.entries()) {
-    if (now - session.startTime > SESSION_TIMEOUT) {
-      // Cleaning up old session
+    if (now - session.lastActivity > SESSION_TIMEOUT) {
       try {
-        if (session.connection) {
-          session.connection.finish();
-        }
+        clearInterval(session.keepaliveTimer);
+        session.connection?.finish();
       } catch (e) {
-        console.warn(`Failed to close session ${sessionId}:`, e);
+        // Session may already be closed
       }
       activeStreams.delete(sessionId);
     }
   }
 }
 
-// Cleanup every 10 seconds
 setInterval(cleanupOldSessions, 10000);
 
 /**
@@ -82,15 +83,19 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
     // Create Deepgram client
     const deepgram = createClient(deepgramApiKey);
 
-    // Create live connection - simplified config to avoid WebSocket protocol errors
+    // Create live connection
     const connection = deepgram.listen.live({
       model: 'nova-2',
       language: 'es',
       smart_format: true,
       interim_results: true,
+      endpointing: 1500,       // Wait 1500ms of silence before finalizing (default ~300ms - too short for slow speech)
+      utterance_end_ms: 2000,  // Send UtteranceEnd event after 2s of silence
+      no_delay: true,          // Reduce latency on interim results
     });
 
     // Store session with keepalive
+    const now = Date.now();
     const keepaliveTimer = setInterval(() => {
       if (connection && connection.getReadyState() === 1) {
         try {
@@ -103,11 +108,13 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
 
     activeStreams.set(sessionId, {
       connection,
+      clientWs: ws,
       locale,
       isActive: true,
-      startTime: Date.now(),
+      startTime: now,
+      lastActivity: now,
       keepaliveTimer,
-    } as any);
+    });
 
     // Handle connection open
     connection.on('open', () => {
@@ -198,14 +205,13 @@ export function sendAudioChunk(sessionId: string, audioBuffer: Buffer): boolean 
   const session = activeStreams.get(sessionId);
   
   if (!session || !session.isActive) {
-    console.warn(`⚠️ [Speech Stream] Session not found or inactive: ${sessionId}`);
     return false;
   }
 
   try {
     if (session.connection && session.connection.getReadyState() === 1) {
       session.connection.send(audioBuffer);
-      // Reduced logging - only log errors, not every chunk
+      session.lastActivity = Date.now();
       return true;
     } else {
       console.warn(`⚠️ [Speech Stream] Connection not ready for ${sessionId}: state=${session.connection?.getReadyState()}`);
@@ -218,46 +224,41 @@ export function sendAudioChunk(sessionId: string, audioBuffer: Buffer): boolean 
 }
 
 /**
- * Stop streaming session and force finalization
- * IMPORTANT: This only closes the Deepgram session, NOT the client WebSocket
+ * Stop streaming session gracefully.
+ * Sends finish signal to Deepgram so it flushes any remaining audio
+ * and sends the final transcript. Waits a grace period before cleanup
+ * so the Results handler can still forward the final transcript to the client.
+ * IMPORTANT: This only closes the Deepgram session, NOT the client WebSocket.
  */
 export function stopSpeechStream(sessionId: string): void {
   const session = activeStreams.get(sessionId);
-  if (!session) {
-    // Session already stopped
-    return;
-  }
+  if (!session) return;
 
-  // Stopping Deepgram session
+  // Mark inactive immediately — reject any new audio chunks
+  session.isActive = false;
+
+  // Clear keepalive (no longer needed)
+  clearInterval(session.keepaliveTimer);
 
   try {
-    // Clear keepalive timer
-    if ((session as any).keepaliveTimer) {
-      clearInterval((session as any).keepaliveTimer);
-    }
+    if (session.connection && session.connection.getReadyState() === 1) {
+      // finish() tells Deepgram to process remaining audio and send final transcript
+      // The Results handler will forward it to the client before the connection closes
+      session.connection.finish();
 
-    if (session.connection) {
-      // Finalize immediately to get last transcript without waiting for endpointing
-      try {
-        session.connection.finishRequest();
-      } catch (e) {
-        // Fallback if finishRequest not available
-      }
-      
-      // Close Deepgram connection gracefully
-      try {
-        session.connection.finish();
-      } catch (e) {
-        console.warn(`⚠️ [Speech Stream] Error finishing Deepgram connection for ${sessionId}`);
-      }
+      // Grace period: let Deepgram send final transcript before we remove the session
+      // The session stays in the map so the Results/close handlers can still fire
+      setTimeout(() => {
+        activeStreams.delete(sessionId);
+      }, FINALIZE_GRACE_PERIOD);
+    } else {
+      // Connection already closed, clean up immediately
+      activeStreams.delete(sessionId);
     }
   } catch (error: any) {
     console.error(`❌ [Speech Stream] Error stopping session (${sessionId}):`, error);
+    activeStreams.delete(sessionId);
   }
-
-  // Remove from active sessions
-  activeStreams.delete(sessionId);
-  // Session stopped
 }
 
 /**

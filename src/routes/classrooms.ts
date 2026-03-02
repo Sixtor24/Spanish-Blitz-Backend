@@ -568,55 +568,78 @@ router.post('/:id/assignments/:assignmentId/complete', requireAuth, withErrorHan
 
   // Check current submission status
   const currentSubmission = await sql`
-    SELECT repetitions_completed FROM assignment_submissions
+    SELECT repetitions_completed, completed_at FROM assignment_submissions
     WHERE assignment_id = ${assignmentId} AND student_id = ${userId}
     LIMIT 1
   `;
 
-  const wasAlreadyCompleted = currentSubmission.length > 0 && 
-    currentSubmission[0].repetitions_completed >= assignment.required_repetitions;
+  const currentReps = currentSubmission.length > 0 ? currentSubmission[0].repetitions_completed : 0;
+  const wasAlreadyCompleted = currentReps >= assignment.required_repetitions;
 
-  await sql`
+  // If already completed all required repetitions, don't increment further
+  if (wasAlreadyCompleted) {
+    return res.json({ 
+      success: true, 
+      repetitions_completed: currentReps,
+      required_repetitions: assignment.required_repetitions,
+      already_completed: true,
+    });
+  }
+
+  const newReps = currentReps + 1;
+  const justCompleted = newReps >= assignment.required_repetitions;
+
+  // Upsert submission: increment repetitions, only set completed_at when reaching required count
+  const updated = await sql`
     INSERT INTO assignment_submissions (assignment_id, student_id, score, completed_at, repetitions_completed)
-    VALUES (${assignmentId}, ${userId}, ${score || null}, NOW(), 1)
+    VALUES (
+      ${assignmentId}, 
+      ${userId}, 
+      ${score || null}, 
+      ${justCompleted ? new Date() : null}, 
+      1
+    )
     ON CONFLICT (assignment_id, student_id) 
     DO UPDATE SET 
-      score = ${score || null},
-      completed_at = NOW(),
-      repetitions_completed = assignment_submissions.repetitions_completed + 1
+      score = COALESCE(${score || null}, assignment_submissions.score),
+      repetitions_completed = assignment_submissions.repetitions_completed + 1,
+      completed_at = CASE 
+        WHEN assignment_submissions.repetitions_completed + 1 >= ${assignment.required_repetitions}
+          AND assignment_submissions.completed_at IS NULL
+        THEN NOW()
+        ELSE assignment_submissions.completed_at
+      END
+    RETURNING repetitions_completed, completed_at
   `;
 
+  const finalReps = updated[0]?.repetitions_completed || newReps;
+
   // Award XP if assignment has xp_reward and just completed all required repetitions
-  if (assignment.xp_reward && assignment.xp_reward > 0 && !wasAlreadyCompleted) {
-    const newRepetitions = currentSubmission.length > 0 
-      ? currentSubmission[0].repetitions_completed + 1 
-      : 1;
+  if (assignment.xp_reward && assignment.xp_reward > 0 && justCompleted) {
+    try {
+      await sql`
+        INSERT INTO xp_events (user_id, mode, xp_earned, assignment_id)
+        VALUES (${userId}, 'assignment', ${assignment.xp_reward}, ${assignmentId})
+      `;
 
-    // Only award XP when reaching required_repetitions for the first time
-    if (newRepetitions >= assignment.required_repetitions) {
-      try {
-        // Insert XP event
-        await sql`
-          INSERT INTO xp_events (user_id, mode, xp_earned, assignment_id)
-          VALUES (${userId}, 'assignment', ${assignment.xp_reward}, ${assignmentId})
-        `;
+      await sql`
+        UPDATE users
+        SET xp_total = xp_total + ${assignment.xp_reward}
+        WHERE id = ${userId}
+      `;
 
-        // Update user's total XP
-        await sql`
-          UPDATE users
-          SET xp_total = xp_total + ${assignment.xp_reward}
-          WHERE id = ${userId}
-        `;
-
-        console.log(`✅ Awarded ${assignment.xp_reward} XP to user ${userId} for completing assignment ${assignmentId}`);
-      } catch (err) {
-        console.error('Error awarding assignment XP:', err);
-        // Don't fail the completion if XP award fails
-      }
+      console.log(`✅ Awarded ${assignment.xp_reward} XP to user ${userId} for completing assignment ${assignmentId}`);
+    } catch (err) {
+      console.error('Error awarding assignment XP:', err);
     }
   }
 
-  return res.json({ success: true });
+  return res.json({ 
+    success: true, 
+    repetitions_completed: finalReps,
+    required_repetitions: assignment.required_repetitions,
+    already_completed: false,
+  });
 }, 'POST /api/classrooms/:id/assignments/:assignmentId/complete'));
 
 export default router;
