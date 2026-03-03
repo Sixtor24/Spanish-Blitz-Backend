@@ -11,10 +11,29 @@ interface StreamingSession {
   connection: any;
   clientWs: WebSocket;
   locale: string;
+  mimeType: string;
   isActive: boolean;
   startTime: number;
   lastActivity: number;
   keepaliveTimer: ReturnType<typeof setInterval>;
+}
+
+/**
+ * Map client MIME types to Deepgram encoding parameters.
+ * Safari sends audio/mp4 (AAC), Chrome/Firefox send audio/webm (Opus).
+ * Telling Deepgram the exact encoding avoids misidentification.
+ */
+function getDeepgramEncoding(mimeType: string): { encoding?: string; sample_rate?: number } {
+  if (mimeType.includes('webm')) {
+    // Chrome/Firefox: webm container with Opus codec
+    return { encoding: 'opus', sample_rate: 48000 };
+  }
+  if (mimeType.includes('mp4') || mimeType.includes('aac')) {
+    // Safari/iOS: mp4 container with AAC codec
+    return { encoding: 'aac', sample_rate: 48000 };
+  }
+  // Unknown — let Deepgram auto-detect
+  return {};
 }
 
 const activeStreams = new Map<string, StreamingSession>();
@@ -47,7 +66,7 @@ setInterval(cleanupOldSessions, 10000);
 /**
  * Start a new streaming transcription session
  */
-export function startSpeechStream(ws: WebSocket, sessionId: string, locale: string = 'es-ES'): void {
+export function startSpeechStream(ws: WebSocket, sessionId: string, locale: string = 'es-ES', mimeType: string = ''): void {
   try {
     // Check API key
     const deepgramApiKey = process.env.DEEPGRAM_API_KEY;
@@ -83,15 +102,20 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
     // Create Deepgram client
     const deepgram = createClient(deepgramApiKey);
 
-    // Create live connection
+    // Resolve encoding from client MIME type (Safari vs Chrome vs Firefox)
+    const encodingParams = getDeepgramEncoding(mimeType);
+
+    // Create live connection — nova-3 for best accuracy with non-native speakers
     const connection = deepgram.listen.live({
-      model: 'nova-2',
+      model: 'nova-3',
       language: 'es',
       smart_format: true,
       interim_results: true,
-      endpointing: 1500,       // Wait 1500ms of silence before finalizing (default ~300ms - too short for slow speech)
-      utterance_end_ms: 2000,  // Send UtteranceEnd event after 2s of silence
-      no_delay: true,          // Reduce latency on interim results
+      endpointing: 800,          // 800ms silence → finalize (fast feedback for known phrases)
+      utterance_end_ms: 1200,    // UtteranceEnd after 1.2s silence
+      vad_events: true,          // Voice Activity Detection — instant "I hear you" signal
+      no_delay: true,            // Reduce latency on interim results
+      ...encodingParams,         // encoding + sample_rate based on client browser
     });
 
     // Store session with keepalive
@@ -110,6 +134,7 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
       connection,
       clientWs: ws,
       locale,
+      mimeType,
       isActive: true,
       startTime: now,
       lastActivity: now,
@@ -242,9 +267,13 @@ export function stopSpeechStream(sessionId: string): void {
 
   try {
     if (session.connection && session.connection.getReadyState() === 1) {
-      // finish() tells Deepgram to process remaining audio and send final transcript
-      // The Results handler will forward it to the client before the connection closes
-      session.connection.finish();
+      // requestClose() tells Deepgram to process remaining audio, send final transcript,
+      // then close the connection gracefully (preferred over finish())
+      if (typeof session.connection.requestClose === 'function') {
+        session.connection.requestClose();
+      } else {
+        session.connection.finish();
+      }
 
       // Grace period: let Deepgram send final transcript before we remove the session
       // The session stays in the map so the Results/close handlers can still fire

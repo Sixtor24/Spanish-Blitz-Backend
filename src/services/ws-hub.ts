@@ -67,8 +67,23 @@ export function setupWebSocket(httpServer: HTTPServer) {
   wss.on('connection', (ws) => {
     // Connection established (log reduced)
     
-    ws.on('message', (data) => {
+    // Track which speech session this WebSocket client is using
+    // so binary audio frames can be routed without JSON overhead
+    let activeSpeechSessionId: string | null = null;
+
+    ws.on('message', (data, isBinary) => {
       try {
+        // Binary frame = raw audio chunk (no JSON overhead)
+        if (isBinary) {
+          if (activeSpeechSessionId) {
+            const sent = sendAudioChunk(activeSpeechSessionId, data as Buffer);
+            if (!sent) {
+              console.warn(`⚠️ [WebSocket] Failed to send binary audio for ${activeSpeechSessionId}`);
+            }
+          }
+          return;
+        }
+
         const msg = JSON.parse(data.toString());
         
         // Play session subscription
@@ -78,23 +93,22 @@ export function setupWebSocket(httpServer: HTTPServer) {
             type: 'session:subscribed', 
             sessionId: msg.sessionId 
           }));
-          // Client subscribed to session
         }
         
         // Speech streaming - start
         else if (msg?.type === 'speech:start') {
           const sessionId = msg.sessionId || `speech-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           const locale = msg.locale || 'es-ES';
-          // Starting speech stream
-          startSpeechStream(ws, sessionId, locale);
+          const mimeType = msg.mimeType || '';
+          activeSpeechSessionId = sessionId;
+          startSpeechStream(ws, sessionId, locale, mimeType);
         }
         
-        // Speech streaming - audio chunk
+        // Speech streaming - audio chunk (legacy base64 fallback)
         else if (msg?.type === 'speech:audio') {
           const { sessionId, audio } = msg;
           if (sessionId && audio) {
             const audioBuffer = Buffer.from(audio, 'base64');
-            // Reduced logging - only log errors
             const sent = sendAudioChunk(sessionId, audioBuffer);
             if (!sent) {
               console.warn(`⚠️ [WebSocket] Failed to send audio chunk for ${sessionId}`);
@@ -104,8 +118,6 @@ export function setupWebSocket(httpServer: HTTPServer) {
                 sessionId,
               }));
             }
-          } else {
-            console.warn(`⚠️ [WebSocket] Invalid audio message: sessionId=${!!sessionId}, hasAudio=${!!audio}`);
           }
         }
         
@@ -113,8 +125,8 @@ export function setupWebSocket(httpServer: HTTPServer) {
         else if (msg?.type === 'speech:stop') {
           const { sessionId } = msg;
           if (sessionId) {
-            // Stopping speech stream
             stopSpeechStream(sessionId);
+            activeSpeechSessionId = null;
           }
         }
         
