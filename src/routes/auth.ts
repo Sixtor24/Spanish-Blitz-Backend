@@ -70,6 +70,7 @@ router.post('/signin', async (req: Request, res: Response) => {
     res.cookie(SESSION_COOKIE_NAME, token, buildCookieOptions());
 
     res.json({
+      token, // Also return token in body for Safari/iOS (ITP blocks cross-site cookies)
       user: {
         id: user.id,
         email: user.email,
@@ -132,6 +133,7 @@ router.post('/signup', async (req: Request, res: Response) => {
     res.cookie(SESSION_COOKIE_NAME, token, buildCookieOptions());
 
     res.json({
+      token, // Also return token in body for Safari/iOS (ITP blocks cross-site cookies)
       user: {
         id: user.id,
         email: user.email,

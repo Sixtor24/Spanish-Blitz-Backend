@@ -27,8 +27,15 @@ export interface AuthRequest extends Request {
  * Returns the decoded payload and the matching database user row.
  */
 async function verifyTokenAndGetUser(req: AuthRequest) {
-  const token = req.cookies?.['authjs.session-token'] || 
-                req.cookies?.['__Secure-authjs.session-token'];
+  // Try Authorization header first (Safari/iOS where cookies are blocked by ITP)
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+
+  // Fall back to cookies (Chrome, Firefox, etc.)
+  const cookieToken = req.cookies?.['authjs.session-token'] || 
+                      req.cookies?.['__Secure-authjs.session-token'];
+
+  const token = bearerToken || cookieToken;
 
   if (!token) {
     throw new ApiError(401, 'Not authenticated');
