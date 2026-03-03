@@ -76,10 +76,14 @@ export function setupWebSocket(httpServer: HTTPServer) {
         // Binary frame = raw audio chunk (no JSON overhead)
         if (isBinary) {
           if (activeSpeechSessionId) {
-            const sent = sendAudioChunk(activeSpeechSessionId, data as Buffer);
+            const buf = data as Buffer;
+            console.log(`🎤 [WebSocket] Binary audio chunk received: ${buf.length} bytes for ${activeSpeechSessionId}`);
+            const sent = sendAudioChunk(activeSpeechSessionId, buf);
             if (!sent) {
               console.warn(`⚠️ [WebSocket] Failed to send binary audio for ${activeSpeechSessionId}`);
             }
+          } else {
+            console.warn(`⚠️ [WebSocket] Binary frame received but no activeSpeechSessionId`);
           }
           return;
         }
@@ -101,6 +105,7 @@ export function setupWebSocket(httpServer: HTTPServer) {
           const locale = msg.locale || 'es-ES';
           const mimeType = msg.mimeType || '';
           activeSpeechSessionId = sessionId;
+          console.log(`🚀 [WebSocket] speech:start — sessionId=${sessionId}, locale=${locale}, mimeType=${mimeType}`);
           startSpeechStream(ws, sessionId, locale, mimeType);
         }
         
@@ -125,6 +130,7 @@ export function setupWebSocket(httpServer: HTTPServer) {
         else if (msg?.type === 'speech:stop') {
           const { sessionId } = msg;
           if (sessionId) {
+            console.log(`🛑 [WebSocket] speech:stop — sessionId=${sessionId}`);
             stopSpeechStream(sessionId);
             activeSpeechSessionId = null;
           }

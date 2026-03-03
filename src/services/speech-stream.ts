@@ -20,19 +20,17 @@ interface StreamingSession {
 
 /**
  * Map client MIME types to Deepgram encoding parameters.
- * Safari sends audio/mp4 (AAC), Chrome/Firefox send audio/webm (Opus).
- * Telling Deepgram the exact encoding avoids misidentification.
+ * NOTE: MediaRecorder outputs container formats (WebM, MP4) not raw codecs.
+ * Deepgram auto-detects WebM/MP4 containers correctly, so we do NOT specify
+ * encoding — telling Deepgram 'opus' when it's actually WebM-wrapped Opus
+ * causes silent failure. Only specify encoding for raw PCM/linear16 streams.
  */
 function getDeepgramEncoding(mimeType: string): { encoding?: string; sample_rate?: number } {
-  if (mimeType.includes('webm')) {
-    // Chrome/Firefox: webm container with Opus codec
-    return { encoding: 'opus', sample_rate: 48000 };
+  // Let Deepgram auto-detect container formats (WebM, MP4)
+  // Only log the mimeType for debugging
+  if (mimeType) {
+    console.log(`🔧 [Speech Stream] Client mimeType: ${mimeType} — letting Deepgram auto-detect`);
   }
-  if (mimeType.includes('mp4') || mimeType.includes('aac')) {
-    // Safari/iOS: mp4 container with AAC codec
-    return { encoding: 'aac', sample_rate: 48000 };
-  }
-  // Unknown — let Deepgram auto-detect
   return {};
 }
 
@@ -97,7 +95,7 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
       stopSpeechStream(sessionId);
     }
 
-    // Starting speech session
+    console.log(`🚀 [Speech Stream] Starting session ${sessionId}, locale=${locale}, mimeType=${mimeType}, activeStreams=${activeStreams.size}`);
 
     // Create Deepgram client
     const deepgram = createClient(deepgramApiKey);
@@ -114,7 +112,6 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
       endpointing: 800,          // 800ms silence → finalize (fast feedback for known phrases)
       utterance_end_ms: 1200,    // UtteranceEnd after 1.2s silence
       vad_events: true,          // Voice Activity Detection — instant "I hear you" signal
-      no_delay: true,            // Reduce latency on interim results
       ...encodingParams,         // encoding + sample_rate based on client browser
     });
 
@@ -141,9 +138,11 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
       keepaliveTimer,
     });
 
+    console.log(`🔧 [Speech Stream] Deepgram config:`, { model: 'nova-3', language: 'es', ...encodingParams });
+
     // Handle connection open
     connection.on('open', () => {
-      // Deepgram connection opened
+      console.log(`✅ [Speech Stream] Deepgram connection OPEN for ${sessionId}`);
       if (ws.readyState === 1) { // WebSocket.OPEN
         ws.send(JSON.stringify({
           type: 'stream:started',
@@ -170,10 +169,7 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
         const confidence = channel.confidence || 0;
 
         if (transcript && transcript.trim()) {
-          // Only log final transcripts to reduce noise
-          if (isFinal) {
-            // Final transcript received
-          }
+          console.log(`📝 [Speech Stream] ${isFinal ? 'FINAL' : 'interim'} (${sessionId}): "${transcript.trim()}" confidence=${confidence}`);
           ws.send(JSON.stringify({
             type: 'transcript',
             transcript: transcript.trim(),
@@ -201,7 +197,7 @@ export function startSpeechStream(ws: WebSocket, sessionId: string, locale: stri
 
     // Handle Deepgram connection close
     connection.on('close', () => {
-      // Deepgram connection closed
+      console.log(`🔌 [Speech Stream] Deepgram connection CLOSED for ${sessionId}`);
       activeStreams.delete(sessionId);
       // DO NOT send stream:closed to client - client WebSocket stays open
       // DO NOT close client WebSocket - it's persistent and reused
@@ -234,12 +230,14 @@ export function sendAudioChunk(sessionId: string, audioBuffer: Buffer): boolean 
   }
 
   try {
-    if (session.connection && session.connection.getReadyState() === 1) {
+    const readyState = session.connection?.getReadyState();
+    if (session.connection && readyState === 1) {
+      console.log(`🎤 [Speech Stream] Forwarding ${audioBuffer.length} bytes to Deepgram for ${sessionId}`);
       session.connection.send(audioBuffer);
       session.lastActivity = Date.now();
       return true;
     } else {
-      console.warn(`⚠️ [Speech Stream] Connection not ready for ${sessionId}: state=${session.connection?.getReadyState()}`);
+      console.warn(`⚠️ [Speech Stream] Connection not ready for ${sessionId}: state=${readyState}`);
     }
     return false;
   } catch (error: any) {
